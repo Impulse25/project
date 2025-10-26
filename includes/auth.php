@@ -37,7 +37,6 @@ function hasAnyRole($roles) {
 }
 
 // Вход пользователя
-// Вход пользователя
 function login($pdo, $username, $password) {
     try {
         $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
@@ -142,7 +141,7 @@ function requireRole($role) {
     }
 }
 
-// Перенаправление на соответствующую панель по роли (СТАРАЯ ЛОГИКА)
+// Перенаправление на соответствующую панель по роли
 function redirectToDashboard() {
     if (!isLoggedIn()) {
         header('Location: index.php');
@@ -151,6 +150,7 @@ function redirectToDashboard() {
     
     $role = $_SESSION['role'];
     
+    // Старые роли идут на свои специализированные страницы
     switch ($role) {
         case 'admin':
             header('Location: admin_dashboard.php');
@@ -165,8 +165,8 @@ function redirectToDashboard() {
             header('Location: technician_dashboard.php');
             break;
         default:
-            // Для всех остальных ролей - на teacher_dashboard
-            header('Location: teacher_dashboard.php');
+            // Все новые роли идут на универсальный dashboard
+            header('Location: unified_dashboard.php');
             break;
     }
     exit();

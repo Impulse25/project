@@ -5,9 +5,29 @@ require_once 'config/db.php';
 require_once 'includes/auth.php';
 require_once 'includes/language.php';
 
-requireRole('teacher');
+requireLogin();
 
 $user = getCurrentUser();
+
+// Проверка права на создание заявок
+$stmt = $pdo->prepare("SELECT can_create_request FROM roles WHERE role_code = ?");
+$stmt->execute([$user['role']]);
+$permission = $stmt->fetch();
+
+// Если роль не найдена или нет прав - используем фоллбэк для старых ролей
+if (!$permission) {
+    // Для старых ролей без записи в таблице roles
+    if ($user['role'] !== 'teacher') {
+        header('Location: unified_dashboard.php');
+        exit();
+    }
+} else {
+    // Для новых ролей проверяем права
+    if (!$permission['can_create_request']) {
+        header('Location: unified_dashboard.php');
+        exit();
+    }
+}
 
 // Обработка смены языка
 if (isset($_GET['lang'])) {
@@ -143,7 +163,7 @@ $currentLang = getCurrentLanguage();
                     <a href="?lang=ru" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'ru' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">Рус</a>
                     <a href="?lang=kk" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'kk' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">Қаз</a>
                 </div>
-                <a href="teacher_dashboard.php" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+                <a href="javascript:history.back()" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
                     <i class="fas fa-arrow-left"></i>
                     <?php echo t('back'); ?>
                 </a>
@@ -156,7 +176,7 @@ $currentLang = getCurrentLanguage();
         <?php if ($success): ?>
             <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
                 <?php echo $success; ?>
-                <a href="teacher_dashboard.php" class="underline ml-2">Вернуться к заявкам</a>
+                <a href="javascript:history.back()" class="underline ml-2">Вернуться к заявкам</a>
             </div>
         <?php endif; ?>
         
@@ -338,7 +358,7 @@ $currentLang = getCurrentLanguage();
                         <i class="fas fa-paper-plane"></i>
                         <?php echo t('send'); ?>
                     </button>
-                    <a href="teacher_dashboard.php" class="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition">
+                    <a href="javascript:history.back()" class="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition">
                         <?php echo t('cancel'); ?>
                     </a>
                 </div>
