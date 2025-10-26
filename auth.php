@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Almaty');
 // includes/auth.php - Функции авторизации
 
 session_start();
