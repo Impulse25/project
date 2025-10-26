@@ -25,6 +25,10 @@ if (!$editUser) {
     exit();
 }
 
+// Получение всех ролей из таблицы roles
+$stmt = $pdo->query("SELECT role_code, role_name_ru FROM roles ORDER BY role_name_ru ASC");
+$roles = $stmt->fetchAll();
+
 $success = '';
 $error = '';
 
@@ -63,6 +67,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$userId]);
         $editUser = $stmt->fetch();
     }
+}
+
+// Получение названия роли для отображения
+$stmt = $pdo->prepare("SELECT role_name_ru FROM roles WHERE role_code = ?");
+$stmt->execute([$editUser['role']]);
+$currentRoleName = $stmt->fetchColumn();
+
+// Если роль не найдена в таблице - используем старые названия
+if (!$currentRoleName) {
+    $oldRoleNames = [
+        'admin' => 'Администратор',
+        'director' => 'Директор',
+        'teacher' => 'Учитель',
+        'technician' => 'Системотехник'
+    ];
+    $currentRoleName = $oldRoleNames[$editUser['role']] ?? 'Неизвестная роль';
 }
 
 $currentLang = getCurrentLanguage();
@@ -142,16 +162,18 @@ $currentLang = getCurrentLanguage();
                                 <input type="text" name="full_name" value="<?php echo htmlspecialchars($editUser['full_name']); ?>" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                             </div>
                             
-                            <!-- Роль -->
+                            <!-- Роль - ДИНАМИЧЕСКИ ИЗ ТАБЛИЦЫ -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Роль <span class="text-red-500">*</span>
                                 </label>
                                 <select name="role" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                    <option value="teacher" <?php echo $editUser['role'] === 'teacher' ? 'selected' : ''; ?>>Учитель</option>
-                                    <option value="technician" <?php echo $editUser['role'] === 'technician' ? 'selected' : ''; ?>>Системотехник</option>
-                                    <option value="director" <?php echo $editUser['role'] === 'director' ? 'selected' : ''; ?>>Директор</option>
-                                    <option value="admin" <?php echo $editUser['role'] === 'admin' ? 'selected' : ''; ?>>Администратор</option>
+                                    <?php foreach ($roles as $roleOption): ?>
+                                        <option value="<?php echo htmlspecialchars($roleOption['role_code']); ?>" 
+                                                <?php echo $editUser['role'] === $roleOption['role_code'] ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($roleOption['role_name_ru']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             
@@ -214,15 +236,7 @@ $currentLang = getCurrentLanguage();
                         <div>
                             <p class="text-sm text-gray-600">Текущая роль</p>
                             <p class="text-lg font-semibold text-gray-800">
-                                <?php 
-                                $roleNames = [
-                                    'admin' => 'Администратор',
-                                    'director' => 'Директор',
-                                    'teacher' => 'Учитель',
-                                    'technician' => 'Системотехник'
-                                ];
-                                echo $roleNames[$editUser['role']];
-                                ?>
+                                <?php echo $currentRoleName; ?>
                             </p>
                         </div>
                     </div>
@@ -236,12 +250,12 @@ $currentLang = getCurrentLanguage();
                     </h3>
                     
                     <?php
-                    // Статистика для учителя
-                    if ($editUser['role'] === 'teacher') {
-                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ?");
-                        $stmt->execute([$userId]);
-                        $totalRequests = $stmt->fetchColumn();
-                        
+                    // Статистика для учителя и других ролей с правом создавать заявки
+                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ?");
+                    $stmt->execute([$userId]);
+                    $totalRequests = $stmt->fetchColumn();
+                    
+                    if ($totalRequests > 0) {
                         $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'completed'");
                         $stmt->execute([$userId]);
                         $completedRequests = $stmt->fetchColumn();
@@ -258,28 +272,30 @@ $currentLang = getCurrentLanguage();
                         </div>
                     <?php 
                     // Статистика для системотехника
-                    } elseif ($editUser['role'] === 'technician') {
+                    } else {
                         $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ?");
                         $stmt->execute([$userId]);
                         $assignedRequests = $stmt->fetchColumn();
                         
-                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ? AND status = 'completed'");
-                        $stmt->execute([$userId]);
-                        $completedRequests = $stmt->fetchColumn();
-                    ?>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                                <span class="text-sm text-gray-700">Назначено заявок</span>
-                                <span class="font-bold text-blue-600"><?php echo $assignedRequests; ?></span>
+                        if ($assignedRequests > 0) {
+                            $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ? AND status = 'completed'");
+                            $stmt->execute([$userId]);
+                            $completedRequests = $stmt->fetchColumn();
+                        ?>
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                                    <span class="text-sm text-gray-700">Назначено заявок</span>
+                                    <span class="font-bold text-blue-600"><?php echo $assignedRequests; ?></span>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                                    <span class="text-sm text-gray-700">Завершено</span>
+                                    <span class="font-bold text-green-600"><?php echo $completedRequests; ?></span>
+                                </div>
                             </div>
-                            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                                <span class="text-sm text-gray-700">Завершено</span>
-                                <span class="font-bold text-green-600"><?php echo $completedRequests; ?></span>
-                            </div>
-                        </div>
-                    <?php 
-                    } else {
-                        echo '<p class="text-sm text-gray-600">Статистика недоступна для этой роли</p>';
+                        <?php 
+                        } else {
+                            echo '<p class="text-sm text-gray-600">Пока нет активности</p>';
+                        }
                     }
                     ?>
                 </div>
