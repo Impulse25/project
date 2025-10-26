@@ -37,6 +37,7 @@ function hasAnyRole($roles) {
 }
 
 // Вход пользователя
+// Вход пользователя
 function login($pdo, $username, $password) {
     try {
         $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
@@ -49,7 +50,41 @@ function login($pdo, $username, $password) {
             $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['position'] = $user['position'];
+            
+            // Логирование успешного входа
+            try {
+                $logStmt = $pdo->prepare("
+                    INSERT INTO login_logs (user_id, username, full_name, role, action, ip_address, user_agent) 
+                    VALUES (?, ?, ?, ?, 'login', ?, ?)
+                ");
+                $logStmt->execute([
+                    $user['id'],
+                    $user['username'],
+                    $user['full_name'],
+                    $user['role'],
+                    $_SERVER['REMOTE_ADDR'],
+                    $_SERVER['HTTP_USER_AGENT'] ?? ''
+                ]);
+            } catch (PDOException $e) {
+                error_log("Login log error: " . $e->getMessage());
+            }
+            
             return true;
+        }
+        
+        // Логирование неудачной попытки входа
+        try {
+            $logStmt = $pdo->prepare("
+                INSERT INTO login_logs (user_id, username, full_name, role, action, ip_address, user_agent) 
+                VALUES (0, ?, '', '', 'failed_login', ?, ?)
+            ");
+            $logStmt->execute([
+                $username,
+                $_SERVER['REMOTE_ADDR'],
+                $_SERVER['HTTP_USER_AGENT'] ?? ''
+            ]);
+        } catch (PDOException $e) {
+            error_log("Failed login log error: " . $e->getMessage());
         }
         
         return false;
@@ -61,6 +96,30 @@ function login($pdo, $username, $password) {
 
 // Выход пользователя
 function logout() {
+    global $pdo;
+    
+    // Получаем данные пользователя перед выходом
+    if (isset($_SESSION['user_id'])) {
+        try {
+            require_once __DIR__ . '/../config/db.php';
+            
+            $stmt = $pdo->prepare("
+                INSERT INTO login_logs (user_id, username, full_name, role, action, ip_address, user_agent) 
+                VALUES (?, ?, ?, ?, 'logout', ?, ?)
+            ");
+            $stmt->execute([
+                $_SESSION['user_id'],
+                $_SESSION['username'],
+                $_SESSION['full_name'],
+                $_SESSION['role'],
+                $_SERVER['REMOTE_ADDR'],
+                $_SERVER['HTTP_USER_AGENT'] ?? ''
+            ]);
+        } catch (PDOException $e) {
+            error_log("Logout log error: " . $e->getMessage());
+        }
+    }
+    
     session_destroy();
     header('Location: index.php');
     exit();
