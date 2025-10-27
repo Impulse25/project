@@ -491,10 +491,14 @@ $currentLang = getCurrentLanguage();
         
         <!-- Контент вкладки Users -->
         <?php if ($tab === 'users'): ?>
-            <div class="mb-4">
+            <div class="mb-4 flex gap-3">
                 <a href="add_user.php" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition inline-flex items-center gap-2">
                     <i class="fas fa-plus"></i>
                     Добавить пользователя
+                </a>
+                <a href="import_users.php" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition inline-flex items-center gap-2">
+                    <i class="fas fa-file-import"></i>
+                    Импорт из CSV
                 </a>
             </div>
             
@@ -597,13 +601,17 @@ $currentLang = getCurrentLanguage();
                                     </p>
                                 </div>
                             </div>
-                            <?php if (!in_array($role['role_code'], ['admin', 'director', 'teacher', 'technician'])): ?>
-                                <a href="?tab=roles&delete_role=<?php echo $role['id']; ?>" onclick="return confirm('Удалить роль <?php echo $role['role_name_ru']; ?>?')" class="text-red-600 hover:text-red-700">
-                                    <i class="fas fa-trash"></i>
+                            <div class="flex gap-2">
+                                <a href="edit_role.php?id=<?php echo $role['id']; ?>" class="text-indigo-600 hover:text-indigo-700 text-lg" title="Редактировать">
+                                    <i class="fas fa-edit"></i>
                                 </a>
-                            <?php endif; ?>
+                                <?php if (!in_array($role['role_code'], ['admin', 'director', 'teacher', 'technician'])): ?>
+                                    <a href="?tab=roles&delete_role=<?php echo $role['id']; ?>" onclick="return confirm('Удалить роль <?php echo $role['role_name_ru']; ?>?')" class="text-red-600 hover:text-red-700 text-lg" title="Удалить">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                <?php endif; ?>
+                            </div>
                         </div>
-                        
                         <?php if ($role['description']): ?>
                             <p class="text-sm text-gray-600 mb-4"><?php echo $role['description']; ?></p>
                         <?php endif; ?>
