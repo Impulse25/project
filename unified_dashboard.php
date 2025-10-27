@@ -49,33 +49,74 @@ if (!$permissions) {
 // Обработка смены языка
 if (isset($_GET['lang'])) {
     setLanguage($_GET['lang']);
-    header('Location: unified_dashboard.php');
+    header('Location: unified_dashboard.php?tab=' . ($_GET['tab'] ?? 'my_requests'));
     exit();
 }
 
-// Получение заявок в зависимости от прав
-if ($permissions['can_view_all_requests']) {
-    // Видит все заявки
-    $stmt = $pdo->query("
-        SELECT r.*, u.full_name as creator_name 
-        FROM requests r 
-        JOIN users u ON r.created_by = u.id 
-        ORDER BY 
-            FIELD(r.priority, 'urgent', 'high', 'normal', 'low'),
-            r.created_at DESC
-    ");
-    $requests = $stmt->fetchAll();
-} else {
-    // Видит только свои заявки
-    $stmt = $pdo->prepare("
-        SELECT r.*, u.full_name as creator_name 
-        FROM requests r 
-        JOIN users u ON r.created_by = u.id 
-        WHERE r.created_by = ? 
-        ORDER BY r.created_at DESC
-    ");
-    $stmt->execute([$user['id']]);
-    $requests = $stmt->fetchAll();
+// Текущая вкладка
+$currentTab = $_GET['tab'] ?? 'my_requests';
+
+// Получение ВСЕХ заявок (будем фильтровать по вкладкам)
+$stmt = $pdo->query("
+    SELECT r.*, u.full_name as creator_name, u.position as creator_position,
+           t.full_name as technician_name
+    FROM requests r 
+    JOIN users u ON r.created_by = u.id 
+    LEFT JOIN users t ON r.assigned_to = t.id
+    ORDER BY 
+        FIELD(r.priority, 'urgent', 'high', 'normal', 'low'),
+        r.created_at DESC
+");
+$allRequests = $stmt->fetchAll();
+
+// Фильтрация заявок в зависимости от вкладки
+$displayRequests = [];
+
+switch ($currentTab) {
+    case 'my_requests':
+        // Мои заявки (созданные мной)
+        $displayRequests = array_filter($allRequests, function($r) use ($user) {
+            return $r['created_by'] == $user['id'];
+        });
+        break;
+        
+    case 'pending':
+        // Заявки на одобрение (только если есть право)
+        if ($permissions['can_approve_request']) {
+            $displayRequests = array_filter($allRequests, function($r) {
+                return $r['status'] == 'pending';
+            });
+        }
+        break;
+        
+    case 'active':
+        // Активные заявки для работы (только если есть право)
+        if ($permissions['can_work_on_request']) {
+            $displayRequests = array_filter($allRequests, function($r) {
+                return in_array($r['status'], ['new', 'approved', 'in_progress']);
+            });
+        }
+        break;
+        
+    case 'all':
+        // Все заявки (только если есть право)
+        if ($permissions['can_view_all_requests']) {
+            $displayRequests = $allRequests;
+        }
+        break;
+        
+    case 'archive':
+        // Архив завершенных заявок
+        $displayRequests = array_filter($allRequests, function($r) use ($user, $permissions) {
+            $isCompleted = $r['status'] == 'completed';
+            // Показываем либо свои, либо все (если есть право)
+            if ($permissions['can_view_all_requests']) {
+                return $isCompleted;
+            } else {
+                return $isCompleted && $r['created_by'] == $user['id'];
+            }
+        });
+        break;
 }
 
 // Функции для приоритетов
@@ -109,6 +150,22 @@ function getPriorityText($priority) {
     return $texts[$priority] ?? 'Обычный';
 }
 
+// Статистика для панели
+$stats = [
+    'my_total' => count(array_filter($allRequests, function($r) use ($user) {
+        return $r['created_by'] == $user['id'];
+    })),
+    'pending' => count(array_filter($allRequests, function($r) {
+        return $r['status'] == 'pending';
+    })),
+    'active' => count(array_filter($allRequests, function($r) {
+        return in_array($r['status'], ['new', 'approved', 'in_progress']);
+    })),
+    'completed' => count(array_filter($allRequests, function($r) {
+        return $r['status'] == 'completed';
+    })),
+];
+
 $currentLang = getCurrentLanguage();
 ?>
 <!DOCTYPE html>
@@ -128,6 +185,36 @@ $currentLang = getCurrentLanguage();
             border-radius: 12px;
             font-size: 11px;
             font-weight: 600;
+        }
+        .tab-link {
+            position: relative;
+            padding: 12px 20px;
+            transition: all 0.2s;
+        }
+        .tab-link.active {
+            color: #4F46E5;
+            font-weight: 600;
+        }
+        .tab-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #4F46E5;
+            border-radius: 3px 3px 0 0;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
         }
     </style>
 </head>
@@ -162,10 +249,10 @@ $currentLang = getCurrentLanguage();
             <div class="flex items-center gap-4">
                 <!-- Переключатель языка -->
                 <div class="flex gap-2">
-                    <a href="?lang=ru" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'ru' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">
+                    <a href="?tab=<?php echo $currentTab; ?>&lang=ru" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'ru' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">
                         Рус
                     </a>
-                    <a href="?lang=kk" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'kk' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">
+                    <a href="?tab=<?php echo $currentTab; ?>&lang=kk" class="px-3 py-1 rounded text-sm <?php echo $currentLang === 'kk' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700'; ?>">
                         Қаз
                     </a>
                 </div>
@@ -180,33 +267,105 @@ $currentLang = getCurrentLanguage();
     <!-- Основной контент -->
     <div class="max-w-7xl mx-auto p-6">
         
-        <div class="flex justify-between items-center mb-6">
+        <!-- Навигация по вкладкам -->
+        <div class="bg-white rounded-lg shadow-sm mb-6">
+            <div class="flex items-center justify-between border-b">
+                <div class="flex">
+                    <!-- Мои заявки -->
+                    <?php if ($permissions['can_create_request']): ?>
+                    <a href="?tab=my_requests" class="tab-link <?php echo $currentTab === 'my_requests' ? 'active' : 'text-gray-600 hover:text-gray-900'; ?>">
+                        <i class="fas fa-file-alt mr-2"></i>
+                        Мои заявки
+                        <?php if ($stats['my_total'] > 0): ?>
+                            <span class="badge bg-blue-100 text-blue-700 ml-2"><?php echo $stats['my_total']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <?php endif; ?>
+                    
+                    <!-- На одобрение -->
+                    <?php if ($permissions['can_approve_request']): ?>
+                    <a href="?tab=pending" class="tab-link <?php echo $currentTab === 'pending' ? 'active' : 'text-gray-600 hover:text-gray-900'; ?>">
+                        <i class="fas fa-clock mr-2"></i>
+                        На одобрение
+                        <?php if ($stats['pending'] > 0): ?>
+                            <span class="badge bg-yellow-100 text-yellow-700 ml-2"><?php echo $stats['pending']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <?php endif; ?>
+                    
+                    <!-- Активные -->
+                    <?php if ($permissions['can_work_on_request']): ?>
+                    <a href="?tab=active" class="tab-link <?php echo $currentTab === 'active' ? 'active' : 'text-gray-600 hover:text-gray-900'; ?>">
+                        <i class="fas fa-wrench mr-2"></i>
+                        Активные
+                        <?php if ($stats['active'] > 0): ?>
+                            <span class="badge bg-purple-100 text-purple-700 ml-2"><?php echo $stats['active']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <?php endif; ?>
+                    
+                    <!-- Все заявки -->
+                    <?php if ($permissions['can_view_all_requests']): ?>
+                    <a href="?tab=all" class="tab-link <?php echo $currentTab === 'all' ? 'active' : 'text-gray-600 hover:text-gray-900'; ?>">
+                        <i class="fas fa-list mr-2"></i>
+                        Все заявки
+                    </a>
+                    <?php endif; ?>
+                    
+                    <!-- Архив -->
+                    <a href="?tab=archive" class="tab-link <?php echo $currentTab === 'archive' ? 'active' : 'text-gray-600 hover:text-gray-900'; ?>">
+                        <i class="fas fa-archive mr-2"></i>
+                        Архив
+                        <?php if ($stats['completed'] > 0): ?>
+                            <span class="badge bg-gray-100 text-gray-700 ml-2"><?php echo $stats['completed']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                </div>
+                
+                <!-- Кнопка создать заявку -->
+                <?php if ($permissions['can_create_request']): ?>
+                <div class="p-3">
+                    <a href="create_request.php" class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+                        <i class="fas fa-plus"></i>
+                        <?php echo t('create_request'); ?>
+                    </a>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <!-- Заголовок текущей вкладки -->
+        <div class="mb-6">
             <h2 class="text-2xl font-bold text-gray-800">
                 <?php 
-                if ($permissions['can_view_all_requests']) {
-                    echo t('all_requests') ?? 'Все заявки';
-                } else {
-                    echo t('my_requests');
+                switch($currentTab) {
+                    case 'my_requests': echo 'Мои заявки'; break;
+                    case 'pending': echo 'Заявки на одобрение'; break;
+                    case 'active': echo 'Активные заявки'; break;
+                    case 'all': echo 'Все заявки'; break;
+                    case 'archive': echo 'Архив заявок'; break;
                 }
                 ?>
             </h2>
-            <?php if ($permissions['can_create_request']): ?>
-                <a href="create_request.php" class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
-                    <i class="fas fa-plus"></i>
-                    <?php echo t('create_request'); ?>
-                </a>
-            <?php endif; ?>
+            <p class="text-sm text-gray-600 mt-1">
+                Найдено заявок: <span class="font-semibold"><?php echo count($displayRequests); ?></span>
+            </p>
         </div>
         
         <!-- Список заявок -->
         <div class="space-y-4">
-            <?php if (empty($requests)): ?>
+            <?php if (empty($displayRequests)): ?>
                 <div class="bg-white rounded-lg shadow p-12 text-center">
                     <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
-                    <p class="text-gray-600"><?php echo t('no_requests'); ?></p>
+                    <p class="text-gray-600 text-lg">Заявок нет</p>
+                    <?php if ($currentTab === 'my_requests' && $permissions['can_create_request']): ?>
+                        <a href="create_request.php" class="inline-block mt-4 text-indigo-600 hover:text-indigo-700 font-medium">
+                            <i class="fas fa-plus mr-2"></i>Создать первую заявку
+                        </a>
+                    <?php endif; ?>
                 </div>
             <?php else: ?>
-                <?php foreach ($requests as $req): 
+                <?php foreach ($displayRequests as $req): 
                     $statusColors = [
                         'new' => 'bg-blue-100 text-blue-800',
                         'pending' => 'bg-yellow-100 text-yellow-800',
@@ -221,7 +380,6 @@ $currentLang = getCurrentLanguage();
                         '1c_database' => 'border-purple-200'
                     ];
                     
-                    // Получаем приоритет
                     $priority = $req['priority'] ?? 'normal';
                 ?>
                     <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition border-l-4 <?php echo $typeColors[$req['request_type']]; ?>">
@@ -254,7 +412,7 @@ $currentLang = getCurrentLanguage();
                                 <p class="text-sm text-gray-600 mt-1">
                                     <?php 
                                     if ($req['request_type'] === 'repair') {
-                                        echo $req['problem_description'] ?? '';
+                                        echo $req['description'] ?? '';
                                     } elseif ($req['request_type'] === 'software') {
                                         echo $req['justification'] ?? '';
                                     } else {
@@ -262,10 +420,16 @@ $currentLang = getCurrentLanguage();
                                     }
                                     ?>
                                 </p>
-                                <?php if ($permissions['can_view_all_requests']): ?>
-                                    <p class="text-sm text-gray-500 mt-1">
+                                <?php if ($currentTab !== 'my_requests'): ?>
+                                    <p class="text-sm text-gray-500 mt-2">
                                         <i class="fas fa-user mr-1"></i>
-                                        <?php echo t('created_by') ?? 'Создал'; ?>: <?php echo $req['creator_name']; ?>
+                                        <strong>Создал:</strong> <?php echo $req['creator_name']; ?> (<?php echo $req['creator_position']; ?>)
+                                    </p>
+                                <?php endif; ?>
+                                <?php if ($req['technician_name']): ?>
+                                    <p class="text-sm text-gray-500 mt-1">
+                                        <i class="fas fa-user-cog mr-1"></i>
+                                        <strong>Исполнитель:</strong> <?php echo $req['technician_name']; ?>
                                     </p>
                                 <?php endif; ?>
                             </div>
@@ -278,10 +442,27 @@ $currentLang = getCurrentLanguage();
                                 <i class="fas fa-clock mr-1"></i>
                                 <?php echo t('created'); ?>: <?php echo date('d.m.Y H:i', strtotime($req['created_at'])); ?>
                             </span>
-                            <a href="view_request.php?id=<?php echo $req['id']; ?>" class="text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                                <i class="fas fa-eye"></i>
-                                <?php echo t('details'); ?>
-                            </a>
+                            <div class="flex gap-2">
+                                <a href="view_request.php?id=<?php echo $req['id']; ?>" class="text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                                    <i class="fas fa-eye"></i>
+                                    <?php echo t('details'); ?>
+                                </a>
+                                
+                                <!-- Кнопки действий в зависимости от прав и статуса -->
+                                <?php if ($permissions['can_approve_request'] && $req['status'] === 'pending'): ?>
+                                    <a href="approve_request.php?id=<?php echo $req['id']; ?>" class="text-green-600 hover:text-green-700 flex items-center gap-1 ml-3">
+                                        <i class="fas fa-check"></i>
+                                        Одобрить
+                                    </a>
+                                <?php endif; ?>
+                                
+                                <?php if ($permissions['can_work_on_request'] && in_array($req['status'], ['new', 'approved'])): ?>
+                                    <a href="assign_request.php?id=<?php echo $req['id']; ?>" class="text-blue-600 hover:text-blue-700 flex items-center gap-1 ml-3">
+                                        <i class="fas fa-hand-paper"></i>
+                                        Взять в работу
+                                    </a>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
