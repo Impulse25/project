@@ -1226,4 +1226,4 @@ $currentLang = getCurrentLanguage();
     </script>
     
 </body>
-</html>
+</html>
