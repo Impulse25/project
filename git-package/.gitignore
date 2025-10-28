@@ -1,0 +1,42 @@
+# PHP
+*.log
+error_log
+php_errors.log
+
+# Database
+config/db.php
+
+# Sensitive files
+.env
+.env.local
+*.key
+*.pem
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+cache/
+
+# Uploads (если есть папка с загрузками пользователей)
+uploads/*
+!uploads/.gitkeep
+
+# Composer (если используется)
+vendor/
+composer.lock
+
+# Node modules (если есть фронтенд)
+node_modules/
+package-lock.json
+yarn.lock
