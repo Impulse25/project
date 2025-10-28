@@ -379,4 +379,3 @@ $currentLang = getCurrentLanguage();
     
 </body>
 </html>
-
