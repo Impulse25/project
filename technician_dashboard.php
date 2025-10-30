@@ -36,6 +36,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
             $stmt->execute([$requestId, $user['id'], $comment]);
         }
+    } elseif ($action === 'complete_and_wait') {
+        // Системотехник завершает работу - отправляет на подтверждение учителю
+        $comment = $_POST['comment'] ?? '';
+        $stmt = $pdo->prepare("UPDATE requests SET status = 'waiting_confirmation', completed_at = NOW() WHERE id = ?");
+        $stmt->execute([$requestId]);
+        
+        if ($comment) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], $comment]);
+        }
     } elseif ($action === 'add_comment') {
         $comment = $_POST['comment'] ?? '';
         if ($comment) {
@@ -88,7 +98,7 @@ $stmt = $pdo->query("
 $activeRequests = $stmt->fetchAll();
 
 // Получение завершенных заявок (архив)
-$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status = 'completed' ORDER BY r.completed_at DESC LIMIT 50");
+$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status IN ('completed', 'waiting_confirmation') ORDER BY r.completed_at DESC LIMIT 50");
 $completedRequests = $stmt->fetchAll();
 
 // Функции для работы с приоритетами
@@ -428,9 +438,9 @@ $currentLang = getCurrentLanguage();
                                     <?php endif; ?>
                                     
                                     <?php if ($req['status'] === 'in_progress'): ?>
-                                        <button type="submit" name="action" value="complete" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
+                                        <button type="submit" name="action" value="complete_and_wait" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
                                             <i class="fas fa-check mr-1"></i>
-                                            <?php echo t('complete_work'); ?>
+                                            Завершить работу
                                         </button>
                                         <button type="submit" name="action" value="send_to_director" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition">
                                             <i class="fas fa-user-tie mr-1"></i>
@@ -471,6 +481,7 @@ $currentLang = getCurrentLanguage();
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Статус</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Кабинет</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
@@ -481,6 +492,17 @@ $currentLang = getCurrentLanguage();
                             <?php foreach ($completedRequests as $req): ?>
                                 <tr class="hover:bg-gray-50">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#<?php echo $req['id']; ?></td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <?php if ($req['status'] === 'waiting_confirmation'): ?>
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                                Ожидает подтверждения
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                Завершена
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo t($req['request_type']); ?></td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $req['cabinet']; ?></td>
                                     <td class="px-6 py-4 text-sm text-gray-500">
