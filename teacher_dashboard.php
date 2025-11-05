@@ -191,14 +191,14 @@ $currentLang = getCurrentLanguage();
                     </a>
                     <a href="?tab=waiting" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'waiting' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-clock"></i>
-                        Ожидают подтверждения
+                        <?php echo t('waiting_confirmation'); ?>
                         <?php if ($waitingCount > 0): ?>
                             <span class="tab-badge animate-pulse"><?php echo $waitingCount; ?></span>
                         <?php endif; ?>
                     </a>
                     <a href="?tab=archive" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'archive' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-archive"></i>
-                        Архив
+                        <?php echo t('archive'); ?>
                         <span class="px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs"><?php echo $archiveCount; ?></span>
                     </a>
                 </nav>
@@ -228,8 +228,8 @@ $currentLang = getCurrentLanguage();
                     <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
                     <p class="text-gray-600">
                         <?php 
-                        if ($tab === 'waiting') echo 'Нет заявок ожидающих подтверждения';
-                        elseif ($tab === 'archive') echo 'Архив пуст';
+                        if ($tab === 'waiting') echo t('no_waiting_confirmation');
+                        elseif ($tab === 'archive') echo t('archive_empty');
                         else echo t('no_requests');
                         ?>
                     </p>

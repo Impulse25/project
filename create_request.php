@@ -39,9 +39,9 @@ if (isset($_GET['lang'])) {
 $success = '';
 $error = '';
 
-// Список кабинетов из БД
-$stmt = $pdo->query("SELECT cabinet_number FROM cabinets ORDER BY cabinet_number ASC");
-$cabinets = $stmt->fetchAll(PDO::FETCH_COLUMN);
+// Список кабинетов больше не нужен - пользователь вводит вручную
+// $stmt = $pdo->query("SELECT cabinet_number FROM cabinets ORDER BY cabinet_number ASC");
+// $cabinets = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 // Обработка создания заявки
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -200,7 +200,7 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-red-500 bg-red-50 rounded-lg text-center transition">
                                 <i class="fas fa-wrench text-3xl text-red-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('repair'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1">Обслуживание и ремонт</div>
+                                <div class="text-xs text-gray-600 mt-1"><?php echo t('repair_maintenance'); ?></div>
                             </div>
                         </label>
                         
@@ -209,7 +209,7 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-laptop-code text-3xl text-blue-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('software'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1">Установка программ</div>
+                                <div class="text-xs text-gray-600 mt-1"><?php echo t('software_installation'); ?></div>
                             </div>
                         </label>
                         
@@ -218,7 +218,7 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-database text-3xl text-purple-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('1c_database'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1">База данных 1С</div>
+                                <div class="text-xs text-gray-600 mt-1"><?php echo t('database_1c'); ?></div>
                             </div>
                         </label>
                     </div>
@@ -237,28 +237,36 @@ $currentLang = getCurrentLanguage();
                 </div>
                 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('cabinet'); ?></label>
-                    <select name="cabinet" required class="w-full px-4 py-2 border rounded-lg">
-                        <option value=""><?php echo t('select_cabinet'); ?></option>
-                        <?php foreach ($cabinets as $cab): ?>
-                            <option value="<?php echo $cab; ?>"><?php echo $cab; ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        <?php echo t('cabinet'); ?> <span class="text-red-500">*</span>
+                    </label>
+                    <input 
+                        type="text" 
+                        name="cabinet" 
+                        required 
+                        placeholder="<?php echo t('cabinet_placeholder'); ?>"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        maxlength="100"
+                    >
+                    <p class="text-xs text-gray-500 mt-1">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        <?php echo t('cabinet_hint'); ?>
+                    </p>
                 </div>
                 
                 <!-- НОВОЕ ПОЛЕ: Приоритет заявки -->
                 <div class="mb-6 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg border-2 border-gray-300">
                     <label class="block text-sm font-medium text-gray-700 mb-3">
                         <i class="fas fa-flag mr-2"></i>
-                        Приоритет заявки
+                        <?php echo t('priority_label'); ?>
                     </label>
                     <div class="grid grid-cols-4 gap-3">
                         <label class="cursor-pointer">
                             <input type="radio" name="priority" value="low" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-gray-300 bg-gray-100 rounded-lg text-center transition hover:border-gray-400">
                                 <i class="fas fa-angle-double-down text-3xl text-gray-600 mb-1"></i>
-                                <div class="text-sm font-bold text-gray-700">Низкий</div>
-                                <div class="text-xs text-gray-600 mt-1">Не срочно</div>
+                                <div class="text-sm font-bold text-gray-700"><?php echo t('low_priority'); ?></div>
+                                <div class="text-xs text-gray-600 mt-1"><?php echo t('not_urgent'); ?></div>
                             </div>
                         </label>
                         
@@ -266,8 +274,8 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="normal" class="hidden priority-radio" checked>
                             <div class="priority-card p-3 border-2 border-blue-500 bg-blue-50 rounded-lg text-center transition">
                                 <i class="fas fa-minus text-3xl text-blue-600 mb-1"></i>
-                                <div class="text-sm font-bold text-blue-700">Обычный</div>
-                                <div class="text-xs text-blue-600 mt-1">Стандартно</div>
+                                <div class="text-sm font-bold text-blue-700"><?php echo t('normal_priority'); ?></div>
+                                <div class="text-xs text-blue-600 mt-1"><?php echo t('standard'); ?></div>
                             </div>
                         </label>
                         
@@ -275,8 +283,8 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="high" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-orange-400 bg-orange-100 rounded-lg text-center transition hover:border-orange-500">
                                 <i class="fas fa-angle-double-up text-3xl text-orange-600 mb-1"></i>
-                                <div class="text-sm font-bold text-orange-700">Высокий</div>
-                                <div class="text-xs text-orange-600 mt-1">Важно</div>
+                                <div class="text-sm font-bold text-orange-700"><?php echo t('high_priority'); ?></div>
+                                <div class="text-xs text-orange-600 mt-1"><?php echo t('important'); ?></div>
                             </div>
                         </label>
                         
@@ -284,14 +292,14 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="urgent" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-red-500 bg-red-100 rounded-lg text-center transition hover:border-red-600">
                                 <i class="fas fa-exclamation-triangle text-3xl text-red-600 mb-1"></i>
-                                <div class="text-sm font-bold text-red-700">Срочный</div>
-                                <div class="text-xs text-red-600 mt-1">Очень важно!</div>
+                                <div class="text-sm font-bold text-red-700"><?php echo t('urgent_priority'); ?></div>
+                                <div class="text-xs text-red-600 mt-1"><?php echo t('very_urgent'); ?></div>
                             </div>
                         </label>
                     </div>
                     <p class="text-xs text-gray-600 mt-3 bg-white p-2 rounded border border-gray-200">
                         <i class="fas fa-info-circle mr-1 text-blue-500"></i>
-                        Системотехники будут обрабатывать заявки в порядке приоритета
+                        <?php echo t('priority_processing_order'); ?>
                     </p>
                 </div>
                 
@@ -300,12 +308,12 @@ $currentLang = getCurrentLanguage();
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('equipment_type'); ?></label>
                         <select name="equipment_type" class="w-full px-4 py-2 border rounded-lg">
-                            <option value="Системный блок">Системный блок</option>
-                            <option value="Монитор">Монитор</option>
-                            <option value="Принтер">Принтер</option>
-                            <option value="Проектор">Проектор</option>
-                            <option value="Сканер">Сканер</option>
-                            <option value="Другое">Другое</option>
+                            <option value="Системный блок"><?php echo t('system_unit'); ?></option>
+                            <option value="Монитор"><?php echo t('monitor'); ?></option>
+                            <option value="Принтер"><?php echo t('printer'); ?></option>
+                            <option value="Проектор"><?php echo t('projector'); ?></option>
+                            <option value="Сканер"><?php echo t('scanner'); ?></option>
+                            <option value="Другое"><?php echo t('other'); ?></option>
                         </select>
                     </div>
                     <div class="mb-4">

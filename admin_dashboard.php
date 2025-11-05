@@ -307,7 +307,7 @@ $currentLang = getCurrentLanguage();
     
     <div class="max-w-7xl mx-auto p-6">
         
-        <h2 class="text-2xl font-bold text-gray-800 mb-6">Панель администратора</h2>
+        <h2 class="text-2xl font-bold text-gray-800 mb-6"><?php echo t('admin_panel'); ?></h2>
         
         <!-- Статистика (только на главной странице) -->
         <?php if ($tab === 'dashboard'): ?>
@@ -315,7 +315,7 @@ $currentLang = getCurrentLanguage();
             <div class="bg-white rounded-lg shadow p-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-600">Всего заявок</p>
+                        <p class="text-sm text-gray-600"><?php echo t('total_requests'); ?></p>
                         <p class="text-3xl font-bold text-gray-800"><?php echo $totalRequests; ?></p>
                     </div>
                     <i class="fas fa-file-alt text-4xl text-indigo-600"></i>
@@ -325,7 +325,7 @@ $currentLang = getCurrentLanguage();
             <div class="bg-white rounded-lg shadow p-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-600">Ожидают одобрения</p>
+                        <p class="text-sm text-gray-600"><?php echo t('waiting_approval'); ?></p>
                         <p class="text-3xl font-bold text-yellow-600"><?php echo $pendingRequests; ?></p>
                     </div>
                     <i class="fas fa-clock text-4xl text-yellow-600"></i>
@@ -335,7 +335,7 @@ $currentLang = getCurrentLanguage();
             <div class="bg-white rounded-lg shadow p-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-600">В работе</p>
+                        <p class="text-sm text-gray-600"><?php echo t('in_work'); ?></p>
                         <p class="text-3xl font-bold text-blue-600"><?php echo $inProgressRequests; ?></p>
                     </div>
                     <i class="fas fa-spinner text-4xl text-blue-600"></i>
@@ -345,7 +345,7 @@ $currentLang = getCurrentLanguage();
             <div class="bg-white rounded-lg shadow p-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-600">Завершено</p>
+                        <p class="text-sm text-gray-600"><?php echo t('finished'); ?></p>
                         <p class="text-3xl font-bold text-green-600"><?php echo $completedRequests; ?></p>
                     </div>
                     <i class="fas fa-check-circle text-4xl text-green-600"></i>
@@ -360,27 +360,27 @@ $currentLang = getCurrentLanguage();
                 <nav class="-mb-px flex gap-4 overflow-x-auto">
                     <a href="?tab=dashboard" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'dashboard' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-home"></i>
-                        Главная
+                        <?php echo t('main'); ?>
                     </a>
                     <a href="?tab=requests" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'requests' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-file-alt"></i>
-                        Заявки
+                        <?php echo t('requests'); ?>
                     </a>
                     <a href="?tab=users" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-users"></i>
-                        Пользователи (<?php echo $totalUsers; ?>)
+                        <?php echo t('users'); ?> (<?php echo $totalUsers; ?>)
                     </a>
                     <a href="?tab=roles" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'roles' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-user-tag"></i>
-                        Роли (<?php echo count($allRoles); ?>)
+                        <?php echo t('roles'); ?> (<?php echo count($allRoles); ?>)
                     </a>
                     <a href="?tab=cabinets" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'cabinets' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-building"></i>
-                        Отделения и кабинеты
+                        <?php echo t('departments_cabinets'); ?>
                     </a>
                     <a href="?tab=logs" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-chart-line"></i>
-                        Логи
+                        <?php echo t('logs'); ?>
                     </a>
                 </nav>
             </div>
@@ -389,7 +389,7 @@ $currentLang = getCurrentLanguage();
         <!-- Контент вкладки Dashboard -->
         <?php if ($tab === 'dashboard'): ?>
             <div class="bg-white rounded-lg shadow-md p-6">
-                <h3 class="text-lg font-bold text-gray-800 mb-4">Последние 20 заявок</h3>
+                <h3 class="text-lg font-bold text-gray-800 mb-4"><?php echo t('last_20_requests'); ?></h3>
                 <div class="overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-gray-50">
