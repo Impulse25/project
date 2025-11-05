@@ -87,18 +87,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Получение активных заявок (включая новые, одобренные и в работе)
 // С СОРТИРОВКОЙ ПО ПРИОРИТЕТУ: urgent > high > normal > low
-$stmt = $pdo->query("
+$stmt = $pdo->prepare("
     SELECT r.*, u.full_name as creator_name,
     FIELD(r.priority, 'urgent', 'high', 'normal', 'low') as priority_order
     FROM requests r 
     JOIN users u ON r.created_by = u.id 
-    WHERE r.status IN ('new', 'approved', 'in_progress') 
+    WHERE (r.status IN ('new', 'approved') OR (r.status = 'in_progress' AND r.assigned_to = ?))
     ORDER BY priority_order ASC, r.created_at ASC
 ");
+$stmt->execute([$user['id']]);
 $activeRequests = $stmt->fetchAll();
 
-// Получение завершенных заявок (архив)
-$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status IN ('completed', 'waiting_confirmation') ORDER BY r.completed_at DESC LIMIT 50");
+// Получение завершенных заявок (архив) - только те, которые выполнял ЭТОТ техник
+$stmt = $pdo->prepare("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status IN ('completed', 'waiting_confirmation') AND r.assigned_to = ? ORDER BY r.completed_at DESC LIMIT 50");
+$stmt->execute([$user['id']]);
 $completedRequests = $stmt->fetchAll();
 
 // Функции для работы с приоритетами
