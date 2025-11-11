@@ -1,7 +1,8 @@
 <?php
-// index.php - Страница входа
+// index.php - Страница входа (С ФИКСОМ СЕССИИ)
 
 require_once 'config/db.php';
+require_once 'config/ldap.php';
 require_once 'includes/auth.php';
 require_once 'includes/language.php';
 
@@ -21,13 +22,110 @@ $error = '';
 
 // Обработка входа
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
+    $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
     
-    if (login($pdo, $username, $password)) {
-        redirectToDashboard();
-    } else {
+    if (empty($username) || empty($password)) {
         $error = t('login_error');
+    } else {
+        // Шаг 1: Попытка LDAP авторизации
+        $ldapUser = ldapAuthenticate($username, $password);
+        
+        if ($ldapUser) {
+            // LDAP авторизация успешна!
+            
+            // Проверяем, есть ли пользователь в локальной БД
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
+            $stmt->execute([strtolower($username)]);
+            $localUser = $stmt->fetch();
+            
+            if ($localUser) {
+                // Пользователь существует в БД - используем его роль и данные
+                $_SESSION['user_id'] = $localUser['id'];
+                $_SESSION['username'] = $localUser['username'];
+                $_SESSION['full_name'] = $localUser['full_name'];
+                $_SESSION['role'] = $localUser['role'];
+                $_SESSION['position'] = $localUser['position'];
+                
+                // КРИТИЧНО: Принудительное сохранение сессии
+                session_write_close();
+                session_start();
+                
+            } else {
+                // Пользователь из AD, но НЕ в локальной БД
+                // Создаем его автоматически с ролью 'teacher'
+                
+                try {
+                    // Генерируем случайный невалидный хеш для LDAP пользователей
+                    // Они все равно не смогут войти через локальную БД, только через AD
+                    $dummyPassword = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
+                    
+                    // Проверяем и фильтруем данные из LDAP
+                    $email = isset($ldapUser['email']) && !empty($ldapUser['email']) && $ldapUser['email'] !== 'N/A' 
+                        ? $ldapUser['email'] 
+                        : strtolower($username) . '@shc.local';
+                    
+                    $fullName = isset($ldapUser['full_name']) && !empty($ldapUser['full_name']) 
+                        ? $ldapUser['full_name'] 
+                        : $username;
+                    
+                    $stmt = $pdo->prepare("
+                        INSERT INTO users (username, full_name, email, password, role, position, created_at) 
+                        VALUES (?, ?, ?, ?, 'teacher', 'Преподаватель', NOW())
+                    ");
+                    
+                    $success = $stmt->execute([
+                        strtolower($username),
+                        $fullName,
+                        $email,
+                        $dummyPassword
+                    ]);
+                    
+                    if (!$success) {
+                        throw new Exception("SQL Execute failed: " . print_r($stmt->errorInfo(), true));
+                    }
+                    
+                    $newUserId = $pdo->lastInsertId();
+                    
+                    $_SESSION['user_id'] = $newUserId;
+                    $_SESSION['username'] = strtolower($username);
+                    $_SESSION['full_name'] = $ldapUser['full_name'];
+                    $_SESSION['role'] = 'teacher';
+                    $_SESSION['position'] = 'Преподаватель';
+                    
+                    // КРИТИЧНО: Принудительное сохранение сессии
+                    session_write_close();
+                    session_start();
+                    
+                } catch (Exception $e) {
+                    error_log("Ошибка создания LDAP пользователя: " . $e->getMessage());
+                    error_log("Имя пользователя: " . $username);
+                    error_log("Full name: " . ($ldapUser['full_name'] ?? 'N/A'));
+                    error_log("Email: " . ($ldapUser['email'] ?? 'N/A'));
+                    error_log("SQL Error Code: " . ($stmt ? $stmt->errorCode() : 'N/A'));
+                    error_log("SQL Error Info: " . print_r($stmt ? $stmt->errorInfo() : [], true));
+                    $error = "Ошибка создания учетной записи: " . $e->getMessage();
+                }
+            }
+            
+            if (!$error) {
+                // Небольшая задержка для гарантии сохранения сессии
+                usleep(100000); // 100ms
+                redirectToDashboard();
+            }
+            
+        } else {
+            // LDAP не сработал - пробуем локальную БД
+            if (login($pdo, $username, $password)) {
+                // КРИТИЧНО: Принудительное сохранение сессии
+                session_write_close();
+                session_start();
+                usleep(100000); // 100ms
+                redirectToDashboard();
+            } else {
+                $error = t('login_error');
+            }
+        }
     }
 }
 
@@ -109,6 +207,10 @@ $currentLang = getCurrentLanguage();
                 <div class="text-xs space-y-1">
                     <div>admin / teacher1 / director / tech1</div>
                 </div>
+                <p class="mt-3 text-xs text-green-600">
+                    <i class="fas fa-network-wired"></i>
+                    LDAP авторизация активна
+                </p>
             </div>
             
         </div>

@@ -1,34 +1,20 @@
 <?php
-// logout.php - Выход из системы с логированием
+// logout.php - Выход из системы
 
-require_once 'config/db.php';
 require_once 'includes/auth.php';
 
-// Проверяем что пользователь авторизован
+// Проверяем, что пользователь авторизован
 if (isLoggedIn()) {
-    $user = getCurrentUser();
+    // Получаем данные пользователя перед выходом (опционально для логирования)
+    $userId = $_SESSION['user_id'] ?? null;
+    $username = $_SESSION['username'] ?? 'unknown';
     
-    // Логируем выход ПЕРЕД уничтожением сессии
-    try {
-        logUserAction(
-            $pdo, 
-            $user['id'], 
-            $user['username'], 
-            $user['full_name'], 
-            $user['role'], 
-            'logout', 
-            $user['auth_type'],
-            true
-        );
-        
-        error_log("LOGOUT: Пользователь {$user['username']} вышел из системы");
-    } catch (Exception $e) {
-        error_log("Logout logging error: " . $e->getMessage());
-    }
+    // Уничтожаем сессию
+    session_destroy();
+    
+    // Опционально: можно добавить логирование выхода в будущем
+    // error_log("User logout: $username (ID: $userId)");
 }
-
-// Уничтожаем сессию
-session_destroy();
 
 // Перенаправляем на страницу входа
 header('Location: index.php');

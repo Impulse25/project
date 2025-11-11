@@ -91,6 +91,33 @@ function getPriorityText($priority) {
     return $texts[$priority] ?? 'Обычный';
 }
 
+function getRoleColor($role) {
+    $colors = [
+        'teacher' => 'border-indigo-500 bg-indigo-50',
+        'technician' => 'border-blue-500 bg-blue-50',
+        'director' => 'border-purple-500 bg-purple-50'
+    ];
+    return $colors[$role] ?? 'border-gray-500 bg-gray-50';
+}
+
+function getRoleIcon($role) {
+    $icons = [
+        'teacher' => 'fa-chalkboard-teacher text-indigo-600',
+        'technician' => 'fa-tools text-blue-600',
+        'director' => 'fa-user-tie text-purple-600'
+    ];
+    return $icons[$role] ?? 'fa-user text-gray-600';
+}
+
+function getRoleName($role) {
+    $names = [
+        'teacher' => 'Преподаватель',
+        'technician' => 'Системотехник',
+        'director' => 'Директор'
+    ];
+    return $names[$role] ?? 'Пользователь';
+}
+
 $currentLang = getCurrentLanguage();
 $priority = $request['priority'] ?? 'normal';
 $students = $request['students_list'] ? json_decode($request['students_list'], true) : [];
@@ -426,6 +453,46 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                     </div>
                 </div>
                 
+                <!-- Отзыв преподавателя и комментарии директора -->
+                <?php if ($request['teacher_feedback'] || $request['rejection_reason'] || $request['completion_note']): ?>
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">
+                            <i class="fas fa-star mr-2"></i>
+                            Дополнительная информация
+                        </h3>
+                        
+                        <?php if ($request['teacher_feedback']): ?>
+                            <div class="mb-4 p-4 border-l-4 border-indigo-500 bg-indigo-50 rounded-r-lg">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i class="fas fa-chalkboard-teacher text-indigo-600"></i>
+                                    <span class="font-semibold text-indigo-800">Отзыв преподавателя о выполненной работе:</span>
+                                </div>
+                                <p class="text-gray-800 whitespace-pre-wrap"><?php echo nl2br(htmlspecialchars($request['teacher_feedback'])); ?></p>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($request['rejection_reason']): ?>
+                            <div class="mb-4 p-4 border-l-4 border-red-500 bg-red-50 rounded-r-lg">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i class="fas fa-times-circle text-red-600"></i>
+                                    <span class="font-semibold text-red-800">Причина отклонения:</span>
+                                </div>
+                                <p class="text-gray-800 whitespace-pre-wrap"><?php echo nl2br(htmlspecialchars($request['rejection_reason'])); ?></p>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($request['completion_note']): ?>
+                            <div class="p-4 border-l-4 border-green-500 bg-green-50 rounded-r-lg">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <i class="fas fa-check-circle text-green-600"></i>
+                                    <span class="font-semibold text-green-800">Примечание техника о завершении:</span>
+                                </div>
+                                <p class="text-gray-800 whitespace-pre-wrap"><?php echo nl2br(htmlspecialchars($request['completion_note'])); ?></p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+                
                 <!-- Комментарии -->
                 <?php if (!empty($comments)): ?>
                     <div class="bg-white rounded-lg shadow-md p-6">
@@ -438,19 +505,20 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                             <?php foreach ($comments as $comment): ?>
                                 <div class="timeline-item">
                                     <div class="timeline-dot"></div>
-                                    <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="p-4 border-l-4 rounded-r-lg <?php echo getRoleColor($comment['role']); ?>">
                                         <div class="flex items-center gap-3 mb-2">
+                                            <i class="fas <?php echo getRoleIcon($comment['role']); ?>"></i>
                                             <span class="font-semibold text-gray-800">
                                                 <?php echo $comment['full_name']; ?>
                                             </span>
-                                            <span class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700">
-                                                <?php echo t($comment['role']); ?>
+                                            <span class="px-2 py-1 rounded text-xs font-medium bg-white shadow-sm">
+                                                <?php echo getRoleName($comment['role']); ?>
                                             </span>
-                                            <span class="text-sm text-gray-500">
+                                            <span class="text-sm text-gray-500 ml-auto">
                                                 <?php echo date('d.m.Y H:i', strtotime($comment['created_at'])); ?>
                                             </span>
                                         </div>
-                                        <p class="text-gray-600 whitespace-pre-wrap"><?php echo htmlspecialchars($comment['comment']); ?></p>
+                                        <p class="text-gray-800 whitespace-pre-wrap"><?php echo nl2br(htmlspecialchars($comment['comment'])); ?></p>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -540,11 +608,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                         Действия
                     </h3>
                     
-                    <div class="space-y-2">
-                        <button onclick="window.print()" class="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-left">
-                            <i class="fas fa-print mr-2"></i>
-                            Печать заявки
-                        </button>
+                  
                         
                         <a href="<?php 
                             if ($user['role'] === 'teacher') {
