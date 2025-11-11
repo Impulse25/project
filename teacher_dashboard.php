@@ -25,15 +25,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'];
     
     if ($action === 'confirm') {
-        // Учитель подтверждает работу
+        // Учитель подтверждает работу (старый метод - совместимость)
         $feedback = $_POST['feedback'] ?? '';
-        $stmt = $pdo->prepare("UPDATE requests SET status = 'completed', confirmed_at = NOW(), confirmed_by = ?, teacher_feedback = ?, is_archived = 1 WHERE id = ? AND created_by = ?");
+        $stmt = $pdo->prepare("UPDATE requests SET status = 'completed', confirmed_at = NOW(), confirmed_by = ?, teacher_feedback = ?, completed_at = NOW() WHERE id = ? AND created_by = ?");
         $stmt->execute([$user['id'], $feedback, $requestId, $user['id']]);
+        
+        // Комментарий с отзывом
+        if ($feedback) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], 'Отзыв преподавателя: ' . $feedback]);
+        }
+        
+        // Лог
+        $logComment = $feedback ? 'Работа принята преподавателем. Отзыв: ' . $feedback : 'Работа принята преподавателем';
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'confirmed', 'awaiting_approval', 'completed', ?)");
+        $stmt->execute([$requestId, $user['id'], $logComment]);
     } elseif ($action === 'reject_completion') {
-        // Учитель возвращает в работу
+        // Учитель возвращает в работу (старый метод)
         $reason = $_POST['rejection_reason'] ?? '';
         $stmt = $pdo->prepare("UPDATE requests SET status = 'in_progress', completed_at = NULL, rejection_reason = ? WHERE id = ? AND created_by = ?");
         $stmt->execute([$reason, $requestId, $user['id']]);
+        
+        // Добавить комментарий
+        if ($reason) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], 'Возврат на доработку: ' . $reason]);
+        }
+        
+        // Лог
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'returned', 'awaiting_approval', 'in_progress', ?)");
+        $stmt->execute([$requestId, $user['id'], 'Возврат на доработку: ' . $reason]);
+    } elseif ($action === 'confirm_work') {
+        // Преподаватель принимает работу (новый метод с логированием)
+        $stmt = $pdo->prepare("UPDATE requests SET status = 'completed', confirmed_at = NOW(), confirmed_by = ?, completed_at = NOW() WHERE id = ?");
+        $stmt->execute([$user['id'], $requestId]);
+        
+        // Добавить комментарий если есть
+        $comment = $_POST['comment'] ?? '';
+        if ($comment) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], 'Отзыв преподавателя: ' . $comment]);
+        }
+        
+        // Лог
+        $logComment = $comment ? 'Работа принята преподавателем. Отзыв: ' . $comment : 'Работа принята преподавателем';
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'confirmed', 'awaiting_approval', 'completed', ?)");
+        $stmt->execute([$requestId, $user['id'], $logComment]);
+        
+    } elseif ($action === 'reject_work') {
+        // Преподаватель возвращает на доработку (новый метод с логированием)
+        $reason = $_POST['reason'] ?? 'Требуется доработка';
+        $stmt = $pdo->prepare("UPDATE requests SET status = 'in_progress', teacher_feedback = ? WHERE id = ?");
+        $stmt->execute([$reason, $requestId]);
+        
+        // Комментарий
+        $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+        $stmt->execute([$requestId, $user['id'], 'Возврат на доработку: ' . $reason]);
+        
+        // Лог
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'returned', 'awaiting_approval', 'in_progress', ?)");
+        $stmt->execute([$requestId, $user['id'], 'Возврат на доработку: ' . $reason]);
     }
     
     header('Location: teacher_dashboard.php?tab=' . $tab);
@@ -43,31 +94,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Получение заявок в зависимости от вкладки
 if ($tab === 'waiting') {
     // Заявки ожидающие подтверждения
-    $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.status = 'waiting_confirmation' ORDER BY r.completed_at DESC");
+    $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.status = 'awaiting_approval' AND r.sent_to_director = 0 ORDER BY r.approval_requested_at DESC");
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 } elseif ($tab === 'archive') {
     // Архив
-    $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name, DATEDIFF(r.confirmed_at, r.created_at) as days_to_complete FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.is_archived = 1 ORDER BY r.confirmed_at DESC");
+    $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name, DATEDIFF(r.confirmed_at, r.created_at) as days_to_complete FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.status = 'completed' ORDER BY r.confirmed_at DESC");
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 } else {
     // Активные заявки
-    $stmt = $pdo->prepare("SELECT * FROM requests WHERE created_by = ? AND is_archived = 0 AND status != 'waiting_confirmation' ORDER BY created_at DESC");
+    $stmt = $pdo->prepare("SELECT * FROM requests WHERE created_by = ? AND status NOT IN ('completed', 'awaiting_approval') ORDER BY created_at DESC");
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 }
 
 // Получаем счетчики для вкладок
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND is_archived = 0 AND status != 'waiting_confirmation'");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status NOT IN ('completed', 'awaiting_approval')");
 $stmt->execute([$user['id']]);
 $activeCount = $stmt->fetchColumn();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'waiting_confirmation'");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'awaiting_approval' AND sent_to_director = 0");
 $stmt->execute([$user['id']]);
 $waitingCount = $stmt->fetchColumn();
 
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND is_archived = 1");
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'completed'");
 $stmt->execute([$user['id']]);
 $archiveCount = $stmt->fetchColumn();
 
@@ -116,11 +167,35 @@ $currentLang = getCurrentLanguage();
         .priority-badge {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .priority-low { 
+            background: #f3f4f6; 
+            color: #1f2937;
+            border: 2px solid #6b7280;
+        }
+        .priority-normal { 
+            background: #dbeafe; 
+            color: #1e40af;
+            border: 2px solid #3b82f6;
+        }
+        .priority-high { 
+            background: #fed7aa; 
+            color: #c2410c;
+            border: 2px solid #ea580c;
+            box-shadow: 0 2px 4px rgba(234, 88, 12, 0.2);
+        }
+        .priority-urgent { 
+            background: #fca5a5; 
+            color: #7f1d1d;
+            border: 2px solid #dc2626;
+            box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
         }
         .tab-badge {
             background: #ef4444;
@@ -144,6 +219,22 @@ $currentLang = getCurrentLanguage();
         function closeModal() {
             document.getElementById('confirmModal').style.display = 'none';
             document.getElementById('rejectModal').style.display = 'none';
+        }
+        
+        // Функция сворачивания/разворачивания истории
+        function toggleHistory(requestId) {
+            const historyDiv = document.getElementById('history-' + requestId);
+            const icon = document.getElementById('history-icon-' + requestId);
+            
+            if (historyDiv.style.display === 'none') {
+                historyDiv.style.display = 'block';
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-up');
+            } else {
+                historyDiv.style.display = 'none';
+                icon.classList.remove('fa-chevron-up');
+                icon.classList.add('fa-chevron-down');
+            }
         }
     </script>
 </head>
@@ -191,14 +282,14 @@ $currentLang = getCurrentLanguage();
                     </a>
                     <a href="?tab=waiting" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'waiting' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-clock"></i>
-                        <?php echo t('waiting_confirmation'); ?>
+                        Ожидают подтверждения
                         <?php if ($waitingCount > 0): ?>
                             <span class="tab-badge animate-pulse"><?php echo $waitingCount; ?></span>
                         <?php endif; ?>
                     </a>
                     <a href="?tab=archive" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'archive' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-archive"></i>
-                        <?php echo t('archive'); ?>
+                        Архив
                         <span class="px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs"><?php echo $archiveCount; ?></span>
                     </a>
                 </nav>
@@ -228,8 +319,8 @@ $currentLang = getCurrentLanguage();
                     <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
                     <p class="text-gray-600">
                         <?php 
-                        if ($tab === 'waiting') echo t('no_waiting_confirmation');
-                        elseif ($tab === 'archive') echo t('archive_empty');
+                        if ($tab === 'waiting') echo 'Нет заявок ожидающих подтверждения';
+                        elseif ($tab === 'archive') echo 'Архив пуст';
                         else echo t('no_requests');
                         ?>
                     </p>
@@ -254,92 +345,97 @@ $currentLang = getCurrentLanguage();
                     // Получаем приоритет
                     $priority = $req['priority'] ?? 'normal';
                 ?>
-                    <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition border-l-4 <?php echo $typeColors[$req['request_type']]; ?>">
-                        <div class="flex justify-between items-start mb-3">
+                    <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 border-l-4 <?php 
+                        if ($priority === 'urgent') echo 'border-red-500';
+                        elseif ($priority === 'high') echo 'border-orange-500';
+                        elseif ($priority === 'normal') echo 'border-blue-500';
+                        else echo 'border-gray-300';
+                    ?>">
+                        
+                        <!-- Заголовок заявки -->
+                        <div class="flex items-start justify-between mb-4">
                             <div class="flex-1">
-                                <div class="flex items-center gap-2 mb-2 flex-wrap">
-                                    <!-- ПРИОРИТЕТ -->
-                                    <span class="priority-badge <?php echo getPriorityColor($priority); ?>">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <!-- Приоритет -->
+                                    <span class="priority-badge priority-<?php echo $priority; ?>">
                                         <i class="fas <?php echo getPriorityIcon($priority); ?>"></i>
                                         <?php echo getPriorityText($priority); ?>
                                     </span>
                                     
-                                    <span class="text-xs font-medium text-gray-500 uppercase">
-                                        <?php echo t($req['request_type']); ?>
-                                    </span>
-                                    <span class="text-xs text-gray-400">•</span>
-                                    <span class="text-xs text-gray-500"><?php echo t('cabinet'); ?>: <?php echo $req['cabinet']; ?></span>
+                                    <!-- Тип заявки -->
+                                    <?php if ($req['request_type'] === 'repair'): ?>
+                                        <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-tools"></i> РЕМОНТ И ОБСЛУЖИВАНИЕ
+                                        </span>
+                                    <?php elseif ($req['request_type'] === 'software'): ?>
+                                        <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-laptop-code"></i> ПРОГРАММНОЕ ОБЕСПЕЧЕНИЕ
+                                        </span>
+                                    <?php elseif ($req['request_type'] === '1c_database'): ?>
+                                        <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-database"></i> 1С БАЗА ДАННЫХ
+                                        </span>
+                                    <?php endif; ?>
                                 </div>
-                                <h3 class="text-lg font-semibold text-gray-800">
-                                    <?php 
-                                    if ($req['request_type'] === 'repair') {
-                                        echo $req['equipment_type'] . ' (' . $req['inventory_number'] . ')';
-                                    } elseif ($req['request_type'] === 'software') {
-                                        echo t('software') . ' - ' . ($req['software_name'] ?? $req['computer_inventory']);
-                                    } else {
-                                        echo t('1c_database') . ' - ' . $req['group_number'];
-                                    }
-                                    ?>
-                                </h3>
-                                <p class="text-sm text-gray-600 mt-1">
-                                    <?php 
-                                    if ($req['request_type'] === 'repair') {
-                                        echo $req['problem_description'] ?? '';
-                                    } elseif ($req['request_type'] === 'software') {
-                                        echo $req['justification'] ?? '';
-                                    } else {
-                                        echo $req['database_purpose'] ?? '';
-                                    }
-                                    ?>
-                                </p>
                                 
-                                <?php if ($tab === 'waiting' && !empty($req['completion_note'])): ?>
-                                    <div class="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                        <p class="text-sm text-gray-700">
-                                            <strong><i class="fas fa-comment mr-1"></i>Примечание системотехника:</strong><br>
-                                            <?php echo nl2br(htmlspecialchars($req['completion_note'])); ?>
-                                        </p>
-                                    </div>
-                                <?php endif; ?>
-                                
-                                <?php if ($tab === 'waiting' && !empty($req['tech_name'])): ?>
-                                    <div class="mt-2 text-sm text-gray-600">
-                                        <i class="fas fa-user-cog mr-1"></i>
-                                        <strong>Выполнил:</strong> <?php echo $req['tech_name']; ?>
-                                    </div>
-                                <?php endif; ?>
-                                
-                                <?php if ($tab === 'archive'): ?>
-                                    <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
-                                        <?php if (!empty($req['tech_name'])): ?>
-                                            <div>
-                                                <i class="fas fa-user-cog text-gray-500 mr-1"></i>
-                                                <strong>Выполнил:</strong> <?php echo $req['tech_name']; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                        <?php if (!empty($req['days_to_complete'])): ?>
-                                            <div>
-                                                <i class="fas fa-clock text-gray-500 mr-1"></i>
-                                                <strong>Срок выполнения:</strong> <?php echo $req['days_to_complete']; ?> дн.
-                                            </div>
-                                        <?php endif; ?>
-                                        <?php if (!empty($req['teacher_feedback'])): ?>
-                                            <div class="col-span-2 p-2 bg-green-50 rounded border border-green-200">
-                                                <strong class="text-green-800">Ваш отзыв:</strong><br>
-                                                <?php echo nl2br(htmlspecialchars($req['teacher_feedback'])); ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    </div>
-                                <?php endif; ?>
+                                <div class="flex items-center gap-4 text-sm text-gray-600">
+                                    <span><i class="fas fa-door-open text-indigo-600"></i> <span class="text-xs text-gray-500">Кабинет:</span> <strong><?php echo htmlspecialchars($req['cabinet']); ?></strong></span>
+                                    <span><i class="fas fa-user text-gray-500"></i> <?php echo htmlspecialchars($user['full_name']); ?></span>
+                                    <span><i class="fas fa-calendar text-gray-500"></i> <span class="text-xs text-gray-500">Создана:</span> <?php echo date('d.m.Y H:i', strtotime($req['created_at'])); ?></span>
+                                    
+                                    <?php if ($req['deadline'] && $req['status'] !== 'completed'): ?>
+                                        <?php 
+                                        $deadline = strtotime($req['deadline']);
+                                        $now = time();
+                                        $daysLeft = ceil(($deadline - $now) / 86400);
+                                        
+                                        if ($daysLeft < 0) {
+                                            echo '<span class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold"><i class="fas fa-exclamation-triangle"></i> <span class="text-xs">Срок:</span> ' . date('d.m.Y', $deadline) . ' (Просрочено!)</span>';
+                                        } elseif ($daysLeft == 0) {
+                                            echo '<span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-bold animate-pulse"><i class="fas fa-clock"></i> <span class="text-xs">Срок:</span> ' . date('d.m.Y', $deadline) . ' (СЕГОДНЯ)</span>';
+                                        } elseif ($daysLeft <= 3) {
+                                            echo '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-bold"><i class="fas fa-hourglass-half"></i> <span class="text-xs">Срок:</span> ' . date('d.m.Y', $deadline) . ' (Осталось ' . $daysLeft . ' дн.)</span>';
+                                        } else {
+                                            echo '<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs"><i class="fas fa-calendar-check"></i> <span class="text-xs">Срок:</span> ' . date('d.m.Y', $deadline) . ' (Осталось ' . $daysLeft . ' дн.)</span>';
+                                        }
+                                        ?>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                            <span class="px-3 py-1 rounded-full text-sm font-medium <?php echo $statusColors[$req['status']]; ?>">
-                                <?php echo t($req['status']); ?>
-                            </span>
+                            
+                            <!-- ID заявки и статус -->
+                            <div class="text-right">
+                                <span class="text-xs text-gray-500">Заявка №</span>
+                                <span class="text-lg font-bold text-gray-800"><?php echo $req['id']; ?></span>
+                                <div class="mt-1">
+                                    <span class="px-3 py-1 rounded-full text-sm font-medium <?php echo $statusColors[$req['status']]; ?>">
+                                        <?php echo t($req['status']); ?>
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         
-                        <!-- КНОПКИ ПОДТВЕРЖДЕНИЯ (только для вкладки "Ожидают подтверждения") -->
+                        <!-- Описание проблемы -->
+                        <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                            <div class="text-xs font-semibold text-gray-600 mb-2 uppercase">
+                                <i class="fas fa-file-alt"></i> Описание проблемы:
+                            </div>
+                            <p class="text-gray-700 whitespace-pre-line">
+                                <?php 
+                                if ($req['request_type'] === 'repair') {
+                                    echo nl2br(htmlspecialchars($req['problem_description'] ?? ''));
+                                } elseif ($req['request_type'] === 'software') {
+                                    echo nl2br(htmlspecialchars($req['justification'] ?? ''));
+                                } else {
+                                    echo nl2br(htmlspecialchars($req['database_purpose'] ?? ''));
+                                }
+                                ?>
+                            </p>
+                        </div>
+                        
+                        <!-- КНОПКИ (только для вкладки "Ожидают подтверждения") -->
                         <?php if ($tab === 'waiting'): ?>
-                            <div class="flex gap-3 pt-4 border-t">
+                            <div class="flex gap-3 mb-4">
                                 <button onclick="showConfirmModal(<?php echo $req['id']; ?>)" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center justify-center gap-2">
                                     <i class="fas fa-check-circle"></i>
                                     Принять работу
@@ -351,26 +447,111 @@ $currentLang = getCurrentLanguage();
                             </div>
                         <?php endif; ?>
                         
-                        <div class="flex justify-between items-center text-sm text-gray-500 pt-3 <?php echo $tab === 'waiting' ? '' : 'border-t'; ?>">
-                            <span>
-                                <i class="fas fa-clock mr-1"></i>
-                                <?php 
-                                if ($tab === 'archive') {
-                                    echo 'Завершено: ' . date('d.m.Y H:i', strtotime($req['confirmed_at']));
-                                } elseif ($tab === 'waiting') {
-                                    echo 'Завершено системотехником: ' . date('d.m.Y H:i', strtotime($req['completed_at']));
-                                } else {
-                                    echo t('created') . ': ' . date('d.m.Y H:i', strtotime($req['created_at']));
-                                }
-                                ?>
-                            </span>
-                            <?php if ($tab !== 'waiting'): ?>
-                                <a href="view_request.php?id=<?php echo $req['id']; ?>" class="text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                                    <i class="fas fa-eye"></i>
-                                    <?php echo t('details'); ?>
-                                </a>
-                            <?php endif; ?>
-                        </div>
+                        <!-- История действий (сворачиваемая) -->
+                        <?php
+                        // Получаем историю действий из request_logs
+                        $stmt = $pdo->prepare("
+                            SELECT rl.*, u.full_name, u.role 
+                            FROM request_logs rl 
+                            JOIN users u ON rl.user_id = u.id 
+                            WHERE rl.request_id = ? 
+                            ORDER BY rl.created_at ASC
+                        ");
+                        $stmt->execute([$req['id']]);
+                        $logs = $stmt->fetchAll();
+                        
+                        if ($logs): ?>
+                            <div class="mt-3 pt-3 border-t">
+                                <button onclick="toggleHistory(<?php echo $req['id']; ?>)" class="text-xs font-semibold text-gray-600 uppercase hover:text-indigo-600 transition flex items-center gap-2">
+                                    <i class="fas fa-history"></i> 
+                                    <span>История действий (<?php echo count($logs); ?>)</span>
+                                    <i id="history-icon-<?php echo $req['id']; ?>" class="fas fa-chevron-down text-xs"></i>
+                                </button>
+                                
+                                <div id="history-<?php echo $req['id']; ?>" style="display: none;" class="mt-2">
+                                    <?php foreach ($logs as $log): ?>
+                                        <div class="text-sm text-gray-600 mb-1 flex items-start gap-2">
+                                            <?php
+                                            // Иконки для разных типов действий
+                                            switch($log['action']) {
+                                                case 'assigned':
+                                                    $icon = '<i class="fas fa-user-check text-green-600"></i>';
+                                                    break;
+                                                case 'sent_for_approval':
+                                                    $icon = '<i class="fas fa-paper-plane text-blue-600"></i>';
+                                                    break;
+                                                case 'sent_to_director':
+                                                    $icon = '<i class="fas fa-user-tie text-purple-600"></i>';
+                                                    break;
+                                                case 'confirmed':
+                                                    $icon = '<i class="fas fa-check-circle text-green-600"></i>';
+                                                    break;
+                                                case 'returned':
+                                                    $icon = '<i class="fas fa-undo text-orange-600"></i>';
+                                                    break;
+                                                case 'rejected':
+                                                    $icon = '<i class="fas fa-times-circle text-red-600"></i>';
+                                                    break;
+                                                case 'comment_added':
+                                                    $icon = '<i class="fas fa-comment text-blue-600"></i>';
+                                                    break;
+                                                case 'deadline_set':
+                                                    $icon = '<i class="fas fa-clock text-yellow-600"></i>';
+                                                    break;
+                                                default:
+                                                    $icon = '<i class="fas fa-circle text-gray-400"></i>';
+                                                    break;
+                                            }
+                                            echo $icon;
+                                            ?>
+                                            <span class="flex-1">
+                                                <strong><?php echo date('d.m.Y H:i', strtotime($log['created_at'])); ?></strong>
+                                                - <?php echo htmlspecialchars($log['comment']); ?>
+                                                <span class="text-gray-500">(<?php echo htmlspecialchars($log['full_name']); ?>)</span>
+                                            </span>
+                                        </div>
+                                    <?php endforeach; ?>
+                                    
+                                    <!-- Кнопка "Просмотр деталей заявки" -->
+                                    <div class="mt-3 pt-2 border-t">
+                                        <a href="view_request.php?id=<?php echo $req['id']; ?>" class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm">
+                                            <i class="fas fa-file-alt"></i> Просмотр деталей заявки
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <!-- Информация об одобрении директором -->
+                        <?php if ($req['status'] === 'approved' && $req['approved_at']): ?>
+                            <div class="mt-3 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
+                                <div class="flex items-center gap-2 text-green-800 font-semibold mb-2">
+                                    <i class="fas fa-check-circle"></i>
+                                    <span>Одобрено директором</span>
+                                </div>
+                                <div class="text-sm text-gray-700">
+                                    <i class="fas fa-clock mr-1"></i>
+                                    <strong>Время одобрения:</strong> <?php echo date('d.m.Y H:i', strtotime($req['approved_at'])); ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($tab === 'waiting' && !empty($req['completion_note'])): ?>
+                            <div class="mt-3 p-3 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
+                                <p class="text-sm text-gray-700">
+                                    <strong><i class="fas fa-comment mr-1"></i>Примечание системотехника:</strong><br>
+                                    <?php echo nl2br(htmlspecialchars($req['completion_note'])); ?>
+                                </p>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($tab === 'archive' && !empty($req['teacher_feedback'])): ?>
+                            <div class="mt-3 p-3 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
+                                <strong class="text-indigo-800"><i class="fas fa-star mr-1"></i>Ваш отзыв:</strong><br>
+                                <p class="text-sm text-gray-700 mt-1"><?php echo nl2br(htmlspecialchars($req['teacher_feedback'])); ?></p>
+                            </div>
+                        <?php endif; ?>
+                        
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>

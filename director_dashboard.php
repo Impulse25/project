@@ -22,20 +22,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     
     if ($action === 'approve') {
+        // Одобрение заявки
+        $comment = $_POST['approval_comment'] ?? '';
+        
         $stmt = $pdo->prepare("UPDATE requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
         $stmt->execute([$user['id'], $requestId]);
+        
+        // Добавить комментарий директора
+        if ($comment) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], $comment]);
+        }
+        
+        // Лог
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, new_status, comment) VALUES (?, ?, 'approved', 'approved', ?)");
+        $stmt->execute([$requestId, $user['id'], 'Одобрено директором: ' . $comment]);
+        
     } elseif ($action === 'reject') {
+        // Отклонение заявки
         $reason = $_POST['reason'] ?? '';
+        
         $stmt = $pdo->prepare("UPDATE requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
         $stmt->execute([$user['id'], $reason, $requestId]);
+        
+        // Добавить комментарий директора об отклонении
+        if ($reason) {
+            $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
+            $stmt->execute([$requestId, $user['id'], 'Заявка отклонена. Причина: ' . $reason]);
+        }
+        
+        // Лог
+        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, new_status, comment) VALUES (?, ?, 'rejected', 'rejected', ?)");
+        $stmt->execute([$requestId, $user['id'], 'Отклонено: ' . $reason]);
     }
     
     header('Location: director_dashboard.php');
     exit();
 }
 
-// Получение заявок на одобрение
-$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status = 'pending' ORDER BY r.created_at DESC");
+// Получение заявок на одобрение (только те, что техники отправили на согласование)
+$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status = 'awaiting_approval' ORDER BY r.created_at DESC");
 $pendingRequests = $stmt->fetchAll();
 
 // Все заявки
@@ -103,8 +129,8 @@ $currentLang = getCurrentLanguage();
                         <div class="mb-4">
                             <div class="flex items-center gap-2 mb-2">
                                 <span class="text-xs font-semibold text-indigo-600 uppercase"><?php echo t($req['request_type']); ?></span>
-                                <span class="px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-                                    <?php echo t('pending'); ?>
+                                <span class="px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                                    На согласовании (от техника)
                                 </span>
                             </div>
                             <h3 class="text-lg font-semibold text-gray-800">
@@ -132,9 +158,8 @@ $currentLang = getCurrentLanguage();
                         </div>
                         
                         <!-- ИСПРАВЛЕННАЯ ФОРМА - убран flex с кнопок -->
-                        <form method="POST" class="flex gap-3 pt-4 border-t">
-                            <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
-                            <button type="submit" name="action" value="approve" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition" style="text-align:center;">
+                        <div class="flex gap-3 pt-4 border-t">
+                            <button type="button" onclick="showApproveModal(<?php echo $req['id']; ?>)" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition" style="text-align:center;">
                                 <i class="fas fa-check-circle"></i>
                                 <?php echo t('approve'); ?>
                             </button>
@@ -142,7 +167,11 @@ $currentLang = getCurrentLanguage();
                                 <i class="fas fa-times-circle"></i>
                                 <?php echo t('reject'); ?>
                             </button>
-                        </form>
+                            <a href="view_request.php?id=<?php echo $req['id']; ?>" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-2" style="text-align:center;">
+                                <i class="fas fa-eye"></i>
+                                Просмотр
+                            </a>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
@@ -161,6 +190,7 @@ $currentLang = getCurrentLanguage();
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('from'); ?></th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('pending'); ?></th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('date'); ?></th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Действия</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200">
@@ -170,7 +200,9 @@ $currentLang = getCurrentLanguage();
                                 'approved' => 'bg-green-100 text-green-800',
                                 'rejected' => 'bg-red-100 text-red-800',
                                 'in_progress' => 'bg-blue-100 text-blue-800',
-                                'completed' => 'bg-gray-100 text-gray-800'
+                                'completed' => 'bg-gray-100 text-gray-800',
+                                'awaiting_approval' => 'bg-purple-100 text-purple-800',
+                                'waiting_confirmation' => 'bg-green-100 text-green-800'
                             ];
                         ?>
                             <tr class="hover:bg-gray-50">
@@ -184,6 +216,12 @@ $currentLang = getCurrentLanguage();
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 text-sm text-gray-500"><?php echo date('d.m.Y', strtotime($req['created_at'])); ?></td>
+                                <td class="px-6 py-4">
+                                    <a href="view_request.php?id=<?php echo $req['id']; ?>" class="text-indigo-600 hover:text-indigo-900 text-sm font-medium flex items-center gap-1">
+                                        <i class="fas fa-eye"></i>
+                                        Просмотр
+                                    </a>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -193,23 +231,68 @@ $currentLang = getCurrentLanguage();
         
     </div>
     
+    <!-- Модальное окно одобрения -->
+    <div id="approveModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index:1000;">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 class="text-lg font-semibold mb-4 text-green-600">
+                <i class="fas fa-check-circle mr-2"></i>
+                Одобрить заявку
+            </h3>
+            <form method="POST" id="approveForm">
+                <input type="hidden" name="request_id" id="approveRequestId">
+                <input type="hidden" name="action" value="approve">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Комментарий (необязательно):</label>
+                    <textarea name="approval_comment" class="w-full px-4 py-2 border rounded-lg" rows="3" placeholder="Напишите комментарий к одобрению..."></textarea>
+                    <p class="text-xs text-gray-500 mt-1">Например: "Одобряю покупку до 5000₸" или "Согласовано"</p>
+                </div>
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                        <i class="fas fa-check mr-1"></i>
+                        Одобрить
+                    </button>
+                    <button type="button" onclick="hideApproveModal()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
     <!-- Модальное окно отклонения -->
     <div id="rejectModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index:1000;">
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 class="text-lg font-semibold mb-4"><?php echo t('reject'); ?></h3>
+            <h3 class="text-lg font-semibold mb-4 text-red-600">
+                <i class="fas fa-times-circle mr-2"></i>
+                Отклонить заявку
+            </h3>
             <form method="POST" id="rejectForm">
                 <input type="hidden" name="request_id" id="rejectRequestId">
                 <input type="hidden" name="action" value="reject">
-                <textarea name="reason" class="w-full px-4 py-2 border rounded-lg mb-4" rows="3" placeholder="<?php echo t('comment'); ?>"></textarea>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Причина отклонения: *</label>
+                    <textarea name="reason" class="w-full px-4 py-2 border rounded-lg" rows="3" placeholder="Укажите причину отклонения..." required></textarea>
+                    <p class="text-xs text-gray-500 mt-1">Например: "Превышен бюджет" или "Не согласовано с бухгалтерией"</p>
+                </div>
                 <div class="flex gap-3">
-                    <button type="submit" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"><?php echo t('reject'); ?></button>
-                    <button type="button" onclick="hideRejectModal()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300"><?php echo t('cancel'); ?></button>
+                    <button type="submit" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
+                        <i class="fas fa-times mr-1"></i>
+                        Отклонить
+                    </button>
+                    <button type="button" onclick="hideRejectModal()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300">Отмена</button>
                 </div>
             </form>
         </div>
     </div>
     
     <script>
+        function showApproveModal(requestId) {
+            document.getElementById('approveRequestId').value = requestId;
+            document.getElementById('approveModal').classList.remove('hidden');
+        }
+        
+        function hideApproveModal() {
+            document.getElementById('approveModal').classList.add('hidden');
+        }
+        
         function showRejectModal(requestId) {
             document.getElementById('rejectRequestId').value = requestId;
             document.getElementById('rejectModal').classList.remove('hidden');
