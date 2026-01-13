@@ -95,9 +95,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Получение заявок в зависимости от вкладки
+<<<<<<< HEAD
 if ($internalTab === 'pending') {
     // Заявки ожидающие одобрения (pending, approved - ещё не взяты техником)
     $stmt = $pdo->prepare("SELECT * FROM requests WHERE created_by = ? AND status IN ('pending', 'approved') ORDER BY created_at DESC");
+=======
+if ($tab === 'waiting') {
+    // Заявки ожидающие подтверждения
+    $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.status = 'awaiting_approval' AND r.sent_to_director = 0 ORDER BY r.approval_requested_at DESC");
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 } elseif ($internalTab === 'waiting') {
@@ -111,13 +117,19 @@ if ($internalTab === 'pending') {
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 } else {
+<<<<<<< HEAD
     // Активные заявки (в работе)
     $stmt = $pdo->prepare("SELECT r.*, u.full_name as tech_name FROM requests r LEFT JOIN users u ON r.assigned_to = u.id WHERE r.created_by = ? AND r.status = 'in_progress' ORDER BY r.created_at DESC");
+=======
+    // Активные заявки
+    $stmt = $pdo->prepare("SELECT * FROM requests WHERE created_by = ? AND status NOT IN ('completed', 'awaiting_approval') ORDER BY created_at DESC");
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     $stmt->execute([$user['id']]);
     $requests = $stmt->fetchAll();
 }
 
 // Получаем счетчики для вкладок
+<<<<<<< HEAD
 // В работе
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'in_progress'");
 $stmt->execute([$user['id']]);
@@ -129,11 +141,20 @@ $stmt->execute([$user['id']]);
 $pendingCount = $stmt->fetchColumn();
 
 // Ожидают подтверждения
+=======
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status NOT IN ('completed', 'awaiting_approval')");
+$stmt->execute([$user['id']]);
+$activeCount = $stmt->fetchColumn();
+
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'awaiting_approval' AND sent_to_director = 0");
 $stmt->execute([$user['id']]);
 $waitingCount = $stmt->fetchColumn();
 
+<<<<<<< HEAD
 // Архив
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'completed'");
 $stmt->execute([$user['id']]);
 $archiveCount = $stmt->fetchColumn();
@@ -291,12 +312,32 @@ $currentLang = getCurrentLanguage();
         <div class="mb-6">
             <div class="border-b border-gray-200">
                 <nav class="-mb-px flex gap-4">
+<<<<<<< HEAD
                     <a href="?tab=active" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 border-indigo-600 text-indigo-600">
                         <i class="fas fa-file-alt"></i> Заявки
                         <?php $totalActive = $activeCount + $pendingCount + $waitingCount; if ($totalActive > 0): ?>
                             <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs"><?php echo $totalActive; ?></span>
                         <?php endif; ?>
                     </a>
+=======
+                    <a href="?tab=active" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'active' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-tasks"></i>
+                        <?php echo t('my_requests'); ?>
+                        <span class="tab-badge"><?php echo $activeCount; ?></span>
+                    </a>
+                    <a href="?tab=waiting" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'waiting' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-clock"></i>
+                        Ожидают подтверждения
+                        <?php if ($waitingCount > 0): ?>
+                            <span class="tab-badge animate-pulse"><?php echo $waitingCount; ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <a href="?tab=archive" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'archive' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-archive"></i>
+                        Архив
+                        <span class="px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs"><?php echo $archiveCount; ?></span>
+                    </a>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                 </nav>
             </div>
         </div>
@@ -344,10 +385,16 @@ $currentLang = getCurrentLanguage();
                     <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
                     <p class="text-gray-600">
                         <?php 
+<<<<<<< HEAD
                         if ($tab === 'pending') echo 'Нет заявок ожидающих одобрения';
                         elseif ($tab === 'approval') echo 'Нет заявок ожидающих подтверждения';
                         elseif ($tab === 'archive') echo 'Архив пуст';
                         else echo 'Нет заявок в работе';
+=======
+                        if ($tab === 'waiting') echo 'Нет заявок ожидающих подтверждения';
+                        elseif ($tab === 'archive') echo 'Архив пуст';
+                        else echo t('no_requests');
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                         ?>
                     </p>
                 </div>
@@ -382,6 +429,7 @@ $currentLang = getCurrentLanguage();
                         <!-- Заголовок заявки -->
                         <div class="flex items-start justify-between mb-4">
                             <div class="flex-1">
+<<<<<<< HEAD
                                 <!-- Приоритет и Категория -->
                                 <div class="mb-3">
                                     <!-- Приоритет -->
@@ -418,6 +466,29 @@ $currentLang = getCurrentLanguage();
                                             <?php endif; ?>
                                         </div>
                                     </div>
+=======
+                                <div class="flex items-center gap-3 mb-2">
+                                    <!-- Приоритет -->
+                                    <span class="priority-badge priority-<?php echo $priority; ?>">
+                                        <i class="fas <?php echo getPriorityIcon($priority); ?>"></i>
+                                        <?php echo getPriorityText($priority); ?>
+                                    </span>
+                                    
+                                    <!-- Тип заявки -->
+                                    <?php if ($req['request_type'] === 'repair'): ?>
+                                        <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-tools"></i> РЕМОНТ И ОБСЛУЖИВАНИЕ
+                                        </span>
+                                    <?php elseif ($req['request_type'] === 'software'): ?>
+                                        <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-laptop-code"></i> ПРОГРАММНОЕ ОБЕСПЕЧЕНИЕ
+                                        </span>
+                                    <?php elseif ($req['request_type'] === '1c_database'): ?>
+                                        <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                            <i class="fas fa-database"></i> 1С БАЗА ДАННЫХ
+                                        </span>
+                                    <?php endif; ?>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                                 </div>
                                 
                                 <div class="flex items-center gap-4 text-sm text-gray-600">
@@ -454,6 +525,7 @@ $currentLang = getCurrentLanguage();
                                         <?php echo t($req['status']); ?>
                                     </span>
                                 </div>
+<<<<<<< HEAD
                             </div>
                         </div>
                         
@@ -568,6 +640,31 @@ $currentLang = getCurrentLanguage();
                         
                         <!-- КНОПКИ (только для вкладки "Ожидают подтверждения") -->
                         <?php if ($tab === 'approval'): ?>
+=======
+                            </div>
+                        </div>
+                        
+                        <!-- Описание проблемы -->
+                        <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                            <div class="text-xs font-semibold text-gray-600 mb-2 uppercase">
+                                <i class="fas fa-file-alt"></i> Описание проблемы:
+                            </div>
+                            <p class="text-gray-700 whitespace-pre-line">
+                                <?php 
+                                if ($req['request_type'] === 'repair') {
+                                    echo nl2br(htmlspecialchars($req['problem_description'] ?? ''));
+                                } elseif ($req['request_type'] === 'software') {
+                                    echo nl2br(htmlspecialchars($req['justification'] ?? ''));
+                                } else {
+                                    echo nl2br(htmlspecialchars($req['database_purpose'] ?? ''));
+                                }
+                                ?>
+                            </p>
+                        </div>
+                        
+                        <!-- КНОПКИ (только для вкладки "Ожидают подтверждения") -->
+                        <?php if ($tab === 'waiting'): ?>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                             <div class="flex gap-3 mb-4">
                                 <button onclick="showConfirmModal(<?php echo $req['id']; ?>)" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition flex items-center justify-center gap-2">
                                     <i class="fas fa-check-circle"></i>
@@ -669,7 +766,11 @@ $currentLang = getCurrentLanguage();
                             </div>
                         <?php endif; ?>
                         
+<<<<<<< HEAD
                         <?php if ($tab === 'approval' && !empty($req['completion_note'])): ?>
+=======
+                        <?php if ($tab === 'waiting' && !empty($req['completion_note'])): ?>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                             <div class="mt-3 p-3 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
                                 <p class="text-sm text-gray-700">
                                     <strong><i class="fas fa-comment mr-1"></i>Примечание системотехника:</strong><br>

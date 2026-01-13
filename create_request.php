@@ -208,7 +208,11 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-red-500 bg-red-50 rounded-lg text-center transition">
                                 <i class="fas fa-wrench text-3xl text-red-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('repair'); ?></div>
+<<<<<<< HEAD
                                 <div class="text-xs text-gray-600 mt-1"></div>
+=======
+                                <div class="text-xs text-gray-600 mt-1">Обслуживание и ремонт</div>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                             </div>
                         </label>
                         
@@ -217,7 +221,11 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-laptop-code text-3xl text-blue-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('software'); ?></div>
+<<<<<<< HEAD
                                 <div class="text-xs text-gray-600 mt-1"></div>
+=======
+                                <div class="text-xs text-gray-600 mt-1">Установка программ</div>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                             </div>
                         </label>
                         
@@ -226,6 +234,7 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-database text-3xl text-purple-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('1c_database'); ?></div>
+<<<<<<< HEAD
                                 <div class="text-xs text-gray-600 mt-1"></div>
                             </div>
                         </label>
@@ -236,6 +245,9 @@ $currentLang = getCurrentLanguage();
                                 <i class="fas fa-question-circle text-3xl text-green-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('general_question'); ?></div>
                                 <div class="text-xs text-gray-600 mt-1"></div>
+=======
+                                <div class="text-xs text-gray-600 mt-1">База данных 1С</div>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                             </div>
                         </label>
                     </div>

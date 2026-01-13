@@ -54,11 +54,16 @@ function login($pdo, $username, $password) {
             $_SESSION['username'] = $user['username'];
             $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['role'] = $user['role'];
+<<<<<<< HEAD
             $_SESSION['position'] = $user['position'] ?? '';
             
             // Логирование успешного входа
             logLogin($pdo, $user['id'], $user['username'], $user['full_name'], $user['role'], 'local', true);
             
+=======
+            $_SESSION['position'] = $user['position'];
+            
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
             // Принудительное сохранение сессии
             session_write_close();
             session_start();
@@ -66,6 +71,7 @@ function login($pdo, $username, $password) {
             return true;
         }
         
+<<<<<<< HEAD
         // Логирование неудачной попытки
         logLogin($pdo, null, $username, null, null, 'local', false, 'Неверный логин или пароль');
         
@@ -186,14 +192,24 @@ function logLogout($pdo) {
         } catch (PDOException $e) {
             error_log("Logout log error: " . $e->getMessage());
         }
+=======
+        return false;
+    } catch (PDOException $e) {
+        error_log("Login error: " . $e->getMessage());
+        return false;
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     }
 }
 
 // Выход пользователя
+<<<<<<< HEAD
 function logout($pdo = null) {
     if ($pdo) {
         logLogout($pdo);
     }
+=======
+function logout() {
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     session_destroy();
     header('Location: index.php');
     exit();
