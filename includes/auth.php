@@ -1,23 +1,15 @@
 <?php
 date_default_timezone_set('Asia/Almaty');
-// includes/auth.php - Функции авторизации с поддержкой LDAP и логирования
+// includes/auth.php - Функции авторизации
 
-session_start();
-
-// Подключаем LDAP конфиг если он есть
-$ldap_config = __DIR__ . '/../config/ldap.php';
-if (file_exists($ldap_config)) {
-    require_once $ldap_config;
-} else {
-    // Если файла нет - отключаем LDAP
-    if (!defined('LDAP_ENABLED')) {
-        define('LDAP_ENABLED', false);
-    }
+// Запуск сессии только если она еще не запущена
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
 
 // Проверка авторизации
 function isLoggedIn() {
-    return isset($_SESSION['user_id']);
+    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
 }
 
 // Получение данных текущего пользователя
@@ -30,8 +22,7 @@ function getCurrentUser() {
         'username' => $_SESSION['username'],
         'full_name' => $_SESSION['full_name'],
         'role' => $_SESSION['role'],
-        'position' => $_SESSION['position'],
-        'auth_type' => $_SESSION['auth_type'] ?? 'local'
+        'position' => $_SESSION['position']
     ];
 }
 
@@ -48,266 +39,161 @@ function hasAnyRole($roles) {
     return in_array($_SESSION['role'], $roles);
 }
 
-/**
- * Логирование действий пользователя
- * Универсальная функция - работает с любой структурой таблицы логов
- */
-function logUserAction($pdo, $userId, $username, $fullName, $role, $action, $authType = 'local', $success = true, $errorMessage = null) {
-    try {
-        // Определяем название таблицы логов
-        $possibleTables = ['user_logs', 'activity_logs', 'audit_logs', 'logs', 'user_activity', 'auth_logs'];
-        $logTable = null;
-        
-        foreach ($possibleTables as $table) {
-            $stmt = $pdo->query("SHOW TABLES LIKE '$table'");
-            if ($stmt && $stmt->rowCount() > 0) {
-                $logTable = $table;
-                break;
-            }
-        }
-        
-        // Если таблица не найдена - создаём
-        if (!$logTable) {
-            $pdo->exec("
-                CREATE TABLE IF NOT EXISTS user_logs (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT,
-                    username VARCHAR(50),
-                    full_name VARCHAR(255),
-                    role VARCHAR(50),
-                    action VARCHAR(50),
-                    auth_type VARCHAR(10),
-                    success BOOLEAN DEFAULT 1,
-                    error_message TEXT,
-                    ip_address VARCHAR(45),
-                    user_agent TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_user_id (user_id),
-                    INDEX idx_username (username),
-                    INDEX idx_action (action),
-                    INDEX idx_created_at (created_at)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            ");
-            $logTable = 'user_logs';
-        }
-        
-        // Получаем IP адрес
-        $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-        if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $ipAddress = $_SERVER['HTTP_X_FORWARDED_FOR'];
-        }
-        
-        // Получаем User Agent
-        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-        
-        // Проверяем какие поля есть в таблице
-        $columns = $pdo->query("SHOW COLUMNS FROM $logTable")->fetchAll(PDO::FETCH_COLUMN);
-        
-        // Формируем SQL в зависимости от структуры таблицы
-        $fields = ['user_id', 'username', 'action', 'ip_address', 'user_agent', 'created_at'];
-        $values = [$userId, $username, $action, $ipAddress, $userAgent, date('Y-m-d H:i:s')];
-        $placeholders = ['?', '?', '?', '?', '?', '?'];
-        
-        // Добавляем дополнительные поля если они есть
-        if (in_array('full_name', $columns)) {
-            $fields[] = 'full_name';
-            $values[] = $fullName;
-            $placeholders[] = '?';
-        }
-        
-        if (in_array('role', $columns)) {
-            $fields[] = 'role';
-            $values[] = $role;
-            $placeholders[] = '?';
-        }
-        
-        if (in_array('auth_type', $columns)) {
-            $fields[] = 'auth_type';
-            $values[] = $authType;
-            $placeholders[] = '?';
-        }
-        
-        if (in_array('success', $columns)) {
-            $fields[] = 'success';
-            $values[] = $success ? 1 : 0;
-            $placeholders[] = '?';
-        }
-        
-        if (in_array('error_message', $columns) && $errorMessage) {
-            $fields[] = 'error_message';
-            $values[] = $errorMessage;
-            $placeholders[] = '?';
-        }
-        
-        // Выполняем INSERT
-        $sql = "INSERT INTO $logTable (" . implode(', ', $fields) . ") VALUES (" . implode(', ', $placeholders) . ")";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($values);
-        
-        return true;
-        
-    } catch (PDOException $e) {
-        error_log("Log error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * ГИБРИДНАЯ АУТЕНТИФИКАЦИЯ
- */
+// Вход пользователя
 function login($pdo, $username, $password) {
-    $username = trim($username);
-    
-    // ШАГ 1: Попытка LDAP
-    if (LDAP_ENABLED) {
-        $ldapUser = ldapAuthenticate($username, $password);
-        
-        if ($ldapUser !== false) {
-            return loginLdapUser($pdo, $ldapUser);
-        }
-    }
-    
-    // ШАГ 2: Локальная БД
-    return loginLocalUser($pdo, $username, $password);
-}
-
-/**
- * Вход через LDAP
- */
-function loginLdapUser($pdo, $ldapUser) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND auth_type = 'ldap'");
-        $stmt->execute([$ldapUser['username']]);
-        $user = $stmt->fetch();
-        
-        if (!$user) {
-            $stmt = $pdo->prepare("
-                INSERT INTO users (username, full_name, role, position, auth_type, password, created_at) 
-                VALUES (?, ?, 'teacher', '', 'ldap', '', NOW())
-            ");
-            $stmt->execute([$ldapUser['username'], $ldapUser['full_name']]);
-            
-            $userId = $pdo->lastInsertId();
-            $role = 'teacher';
-            $position = '';
-            
-            error_log("LDAP: Создан пользователь {$ldapUser['username']}");
-        } else {
-            if ($user['full_name'] !== $ldapUser['full_name']) {
-                $stmt = $pdo->prepare("UPDATE users SET full_name = ? WHERE id = ?");
-                $stmt->execute([$ldapUser['full_name'], $user['id']]);
-            }
-            
-            $userId = $user['id'];
-            $role = $user['role'];
-            $position = $user['position'];
-        }
-        
-        $_SESSION['user_id'] = $userId;
-        $_SESSION['username'] = $ldapUser['username'];
-        $_SESSION['full_name'] = $ldapUser['full_name'];
-        $_SESSION['role'] = $role;
-        $_SESSION['position'] = $position;
-        $_SESSION['auth_type'] = 'ldap';
-        
-        // Логируем вход
-        logUserAction($pdo, $userId, $ldapUser['username'], $ldapUser['full_name'], $role, 'login', 'ldap', true);
-        
-        return true;
-        
-    } catch (PDOException $e) {
-        error_log("LDAP Login DB error: " . $e->getMessage());
-        logUserAction($pdo, null, $ldapUser['username'], $ldapUser['full_name'], '', 'login', 'ldap', false, $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Вход через локальную БД
- */
-function loginLocalUser($pdo, $username, $password) {
-    try {
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND auth_type = 'local'");
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch();
         
         if ($user && password_verify($password, $user['password'])) {
+            // Регенерация ID сессии для безопасности
+            session_regenerate_id(true);
+            
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['role'] = $user['role'];
-            $_SESSION['position'] = $user['position'];
-            $_SESSION['auth_type'] = 'local';
+            $_SESSION['position'] = $user['position'] ?? '';
             
-            // Логируем успешный вход
-            logUserAction($pdo, $user['id'], $user['username'], $user['full_name'], $user['role'], 'login', 'local', true);
+            // Логирование успешного входа
+            logLogin($pdo, $user['id'], $user['username'], $user['full_name'], $user['role'], 'local', true);
+            
+            // Принудительное сохранение сессии
+            session_write_close();
+            session_start();
             
             return true;
         }
         
-        // Логируем неудачную попытку
-        if ($user) {
-            logUserAction($pdo, $user['id'], $username, $user['full_name'], $user['role'], 'failed_login', 'local', false, 'Неверный пароль');
-        } else {
-            logUserAction($pdo, null, $username, '', '', 'failed_login', 'local', false, 'Пользователь не найден');
-        }
+        // Логирование неудачной попытки
+        logLogin($pdo, null, $username, null, null, 'local', false, 'Неверный логин или пароль');
         
         return false;
     } catch (PDOException $e) {
-        error_log("Local login error: " . $e->getMessage());
+        error_log("Login error: " . $e->getMessage());
+        logLogin($pdo, null, $username, null, null, 'local', false, $e->getMessage());
         return false;
     }
 }
 
-/**
- * Создание локального администратора
- */
-function createLocalAdmin($pdo, $username, $password, $fullName = 'Администратор') {
+// Вход через LDAP
+function loginLdap($pdo, $username, $password) {
+    // Конфигурация LDAP
+    $ldapServer = 'ldap://your-domain-controller';
+    $ldapDomain = '@yourdomain.local';
+    $baseDn = 'DC=yourdomain,DC=local';
+    
     try {
-        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        $ldapConn = @ldap_connect($ldapServer);
+        if (!$ldapConn) {
+            logLogin($pdo, null, $username, null, null, 'ldap', false, 'Не удалось подключиться к LDAP серверу');
+            return false;
+        }
+        
+        ldap_set_option($ldapConn, LDAP_OPT_PROTOCOL_VERSION, 3);
+        ldap_set_option($ldapConn, LDAP_OPT_REFERRALS, 0);
+        
+        // Попытка привязки к LDAP
+        $ldapBind = @ldap_bind($ldapConn, $username . $ldapDomain, $password);
+        
+        if (!$ldapBind) {
+            logLogin($pdo, null, $username, null, null, 'ldap', false, 'Неверные учетные данные LDAP');
+            ldap_close($ldapConn);
+            return false;
+        }
+        
+        // Поиск пользователя в локальной БД
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? OR ldap_username = ?");
+        $stmt->execute([$username, $username]);
+        $user = $stmt->fetch();
+        
+        if ($user) {
+            // Пользователь найден - авторизуем
+            session_regenerate_id(true);
+            
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['full_name'] = $user['full_name'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['position'] = $user['position'] ?? '';
+            
+            // Логирование успешного LDAP входа
+            logLogin($pdo, $user['id'], $username, $user['full_name'], $user['role'], 'ldap', true);
+            
+            ldap_close($ldapConn);
+            session_write_close();
+            session_start();
+            return true;
+        } else {
+            // Пользователь не найден в локальной БД
+            logLogin($pdo, null, $username, null, null, 'ldap', false, 'Пользователь не найден в системе');
+            ldap_close($ldapConn);
+            return false;
+        }
+        
+    } catch (Exception $e) {
+        error_log("LDAP Login error: " . $e->getMessage());
+        logLogin($pdo, null, $username, null, null, 'ldap', false, $e->getMessage());
+        return false;
+    }
+}
+
+// Функция логирования входа
+function logLogin($pdo, $userId, $username, $fullName, $role, $authType, $success, $errorMessage = null) {
+    try {
+        $ipAddress = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+        $action = $success ? 'login' : 'login_failed';
         
         $stmt = $pdo->prepare("
-            INSERT INTO users (username, password, full_name, role, position, auth_type, created_at) 
-            VALUES (?, ?, ?, 'admin', 'Системный администратор', 'local', NOW())
-            ON DUPLICATE KEY UPDATE password = ?, full_name = ?
+            INSERT INTO login_logs (user_id, username, full_name, role, action, ip_address, user_agent, auth_type, success, error_message, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
-        
-        $stmt->execute([$username, $hashedPassword, $fullName, $hashedPassword, $fullName]);
-        
-        return true;
+        $stmt->execute([
+            $userId,
+            $username,
+            $fullName,
+            $role,
+            $action,
+            $ipAddress,
+            $userAgent,
+            $authType,
+            $success ? 1 : 0,
+            $errorMessage
+        ]);
     } catch (PDOException $e) {
-        error_log("Create local admin error: " . $e->getMessage());
-        return false;
+        error_log("Login log error: " . $e->getMessage());
+    }
+}
+
+// Логирование выхода
+function logLogout($pdo) {
+    if (isLoggedIn()) {
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO login_logs (user_id, username, full_name, role, action, ip_address, user_agent, auth_type, success, created_at) 
+                VALUES (?, ?, ?, ?, 'logout', ?, ?, 'session', 1, NOW())
+            ");
+            $stmt->execute([
+                $_SESSION['user_id'],
+                $_SESSION['username'],
+                $_SESSION['full_name'],
+                $_SESSION['role'],
+                $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
+            ]);
+        } catch (PDOException $e) {
+            error_log("Logout log error: " . $e->getMessage());
+        }
     }
 }
 
 // Выход пользователя
 function logout($pdo = null) {
-    // Если $pdo не передан, пытаемся получить глобальный
-    if ($pdo === null) {
-        global $pdo;
+    if ($pdo) {
+        logLogout($pdo);
     }
-    
-    // Логируем выход ПЕРЕД уничтожением сессии
-    if (isLoggedIn() && $pdo) {
-        $user = getCurrentUser();
-        
-        try {
-            logUserAction(
-                $pdo, 
-                $user['id'], 
-                $user['username'], 
-                $user['full_name'], 
-                $user['role'], 
-                'logout', 
-                $user['auth_type'],
-                true
-            );
-        } catch (Exception $e) {
-            error_log("Logout logging error: " . $e->getMessage());
-        }
-    }
-    
     session_destroy();
     header('Location: index.php');
     exit();
@@ -353,6 +239,7 @@ function redirectToDashboard() {
             header('Location: technician_dashboard.php');
             break;
         default:
+            // Для всех остальных ролей - на teacher_dashboard
             header('Location: teacher_dashboard.php');
             break;
     }

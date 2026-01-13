@@ -39,10 +39,6 @@ if (isset($_GET['lang'])) {
 $success = '';
 $error = '';
 
-// Список кабинетов больше не нужен - пользователь вводит вручную
-// $stmt = $pdo->query("SELECT cabinet_number FROM cabinets ORDER BY cabinet_number ASC");
-// $cabinets = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
 // Обработка создания заявки
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $requestType = $_POST['request_type'];
@@ -86,9 +82,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $stmt = $pdo->prepare("INSERT INTO requests (request_type, created_by, full_name, position, cabinet, group_number, database_purpose, students_list, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$requestType, $user['id'], $fullName, $position, $cabinet, $groupNumber, $databasePurpose, $studentsList, $priority]);
+            
+        } elseif ($requestType === 'general_question') {
+            // Заявка на общие вопросы/консультацию
+            $questionDescription = $_POST['question_description'];
+            $softwareOrSystem = $_POST['software_or_system'] ?? '';
+            
+            $stmt = $pdo->prepare("INSERT INTO requests (request_type, created_by, full_name, position, cabinet, question_description, software_or_system, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$requestType, $user['id'], $fullName, $position, $cabinet, $questionDescription, $softwareOrSystem, $priority]);
         }
         
         $success = 'Заявка успешно отправлена!';
+        
+        // Редирект на страницу преподавателя
+        header('Location: teacher_dashboard.php?tab=active&created=1');
+        exit();
         
     } catch (PDOException $e) {
         $error = 'Ошибка при создании заявки: ' . $e->getMessage();
@@ -194,13 +202,13 @@ $currentLang = getCurrentLanguage();
                 <!-- Выбор типа заявки -->
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 mb-3"><?php echo t('request_type'); ?></label>
-                    <div class="grid grid-cols-3 gap-3">
+                    <div class="grid grid-cols-4 gap-3">
                         <label class="cursor-pointer">
                             <input type="radio" name="request_type" value="repair" class="hidden request-type-radio" checked>
                             <div class="request-type-card p-4 border-2 border-red-500 bg-red-50 rounded-lg text-center transition">
                                 <i class="fas fa-wrench text-3xl text-red-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('repair'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1"><?php echo t('repair_maintenance'); ?></div>
+                                <div class="text-xs text-gray-600 mt-1"></div>
                             </div>
                         </label>
                         
@@ -209,7 +217,7 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-laptop-code text-3xl text-blue-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('software'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1"><?php echo t('software_installation'); ?></div>
+                                <div class="text-xs text-gray-600 mt-1"></div>
                             </div>
                         </label>
                         
@@ -218,7 +226,16 @@ $currentLang = getCurrentLanguage();
                             <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
                                 <i class="fas fa-database text-3xl text-purple-600 mb-2"></i>
                                 <div class="font-medium"><?php echo t('1c_database'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1"><?php echo t('database_1c'); ?></div>
+                                <div class="text-xs text-gray-600 mt-1"></div>
+                            </div>
+                        </label>
+                        
+                        <label class="cursor-pointer">
+                            <input type="radio" name="request_type" value="general_question" class="hidden request-type-radio">
+                            <div class="request-type-card p-4 border-2 border-gray-200 rounded-lg text-center transition hover:border-gray-300">
+                                <i class="fas fa-question-circle text-3xl text-green-600 mb-2"></i>
+                                <div class="font-medium"><?php echo t('general_question'); ?></div>
+                                <div class="text-xs text-gray-600 mt-1"></div>
                             </div>
                         </label>
                     </div>
@@ -237,36 +254,23 @@ $currentLang = getCurrentLanguage();
                 </div>
                 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        <?php echo t('cabinet'); ?> <span class="text-red-500">*</span>
-                    </label>
-                    <input 
-                        type="text" 
-                        name="cabinet" 
-                        required 
-                        placeholder="<?php echo t('cabinet_placeholder'); ?>"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        maxlength="100"
-                    >
-                    <p class="text-xs text-gray-500 mt-1">
-                        <i class="fas fa-info-circle mr-1"></i>
-                        <?php echo t('cabinet_hint'); ?>
-                    </p>
+                    <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('cabinet'); ?></label>
+                    <input type="text" name="cabinet" required class="w-full px-4 py-2 border rounded-lg" placeholder="<?php echo t('Введите номер кабинета. Пример: 403'); ?>">
                 </div>
                 
                 <!-- НОВОЕ ПОЛЕ: Приоритет заявки -->
                 <div class="mb-6 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg border-2 border-gray-300">
                     <label class="block text-sm font-medium text-gray-700 mb-3">
                         <i class="fas fa-flag mr-2"></i>
-                        <?php echo t('priority_label'); ?>
+                        Приоритет заявки
                     </label>
                     <div class="grid grid-cols-4 gap-3">
                         <label class="cursor-pointer">
                             <input type="radio" name="priority" value="low" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-gray-300 bg-gray-100 rounded-lg text-center transition hover:border-gray-400">
                                 <i class="fas fa-angle-double-down text-3xl text-gray-600 mb-1"></i>
-                                <div class="text-sm font-bold text-gray-700"><?php echo t('low_priority'); ?></div>
-                                <div class="text-xs text-gray-600 mt-1"><?php echo t('not_urgent'); ?></div>
+                                <div class="text-sm font-bold text-gray-700">Низкий</div>
+                                <div class="text-xs text-gray-600 mt-1">Не срочно</div>
                             </div>
                         </label>
                         
@@ -274,8 +278,8 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="normal" class="hidden priority-radio" checked>
                             <div class="priority-card p-3 border-2 border-blue-500 bg-blue-50 rounded-lg text-center transition">
                                 <i class="fas fa-minus text-3xl text-blue-600 mb-1"></i>
-                                <div class="text-sm font-bold text-blue-700"><?php echo t('normal_priority'); ?></div>
-                                <div class="text-xs text-blue-600 mt-1"><?php echo t('standard'); ?></div>
+                                <div class="text-sm font-bold text-blue-700">Обычный</div>
+                                <div class="text-xs text-blue-600 mt-1">Стандартно</div>
                             </div>
                         </label>
                         
@@ -283,8 +287,8 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="high" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-orange-400 bg-orange-100 rounded-lg text-center transition hover:border-orange-500">
                                 <i class="fas fa-angle-double-up text-3xl text-orange-600 mb-1"></i>
-                                <div class="text-sm font-bold text-orange-700"><?php echo t('high_priority'); ?></div>
-                                <div class="text-xs text-orange-600 mt-1"><?php echo t('important'); ?></div>
+                                <div class="text-sm font-bold text-orange-700">Высокий</div>
+                                <div class="text-xs text-orange-600 mt-1">Важно</div>
                             </div>
                         </label>
                         
@@ -292,14 +296,14 @@ $currentLang = getCurrentLanguage();
                             <input type="radio" name="priority" value="urgent" class="hidden priority-radio">
                             <div class="priority-card p-3 border-2 border-red-500 bg-red-100 rounded-lg text-center transition hover:border-red-600">
                                 <i class="fas fa-exclamation-triangle text-3xl text-red-600 mb-1"></i>
-                                <div class="text-sm font-bold text-red-700"><?php echo t('urgent_priority'); ?></div>
-                                <div class="text-xs text-red-600 mt-1"><?php echo t('very_urgent'); ?></div>
+                                <div class="text-sm font-bold text-red-700">Срочный</div>
+                                <div class="text-xs text-red-600 mt-1">Очень важно!</div>
                             </div>
                         </label>
                     </div>
                     <p class="text-xs text-gray-600 mt-3 bg-white p-2 rounded border border-gray-200">
                         <i class="fas fa-info-circle mr-1 text-blue-500"></i>
-                        <?php echo t('priority_processing_order'); ?>
+                        Системотехники будут обрабатывать заявки в порядке приоритета
                     </p>
                 </div>
                 
@@ -308,12 +312,12 @@ $currentLang = getCurrentLanguage();
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('equipment_type'); ?></label>
                         <select name="equipment_type" class="w-full px-4 py-2 border rounded-lg">
-                            <option value="Системный блок"><?php echo t('system_unit'); ?></option>
-                            <option value="Монитор"><?php echo t('monitor'); ?></option>
-                            <option value="Принтер"><?php echo t('printer'); ?></option>
-                            <option value="Проектор"><?php echo t('projector'); ?></option>
-                            <option value="Сканер"><?php echo t('scanner'); ?></option>
-                            <option value="Другое"><?php echo t('other'); ?></option>
+                            <option value="Системный блок">Системный блок</option>
+                            <option value="Монитор">Монитор</option>
+                            <option value="Принтер">Принтер</option>
+                            <option value="Проектор">Проектор</option>
+                            <option value="Сканер">Сканер</option>
+                            <option value="Другое">Другое</option>
                         </select>
                     </div>
                     <div class="mb-4">
@@ -361,6 +365,22 @@ $currentLang = getCurrentLanguage();
                     </div>
                 </div>
                 
+                <!-- Поля для общих вопросов -->
+                <div id="generalQuestionFields" class="form-section hidden">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('software_or_system'); ?></label>
+                        <input type="text" name="software_or_system" class="w-full px-4 py-2 border rounded-lg" placeholder="Например: Microsoft Word, 1С:Предприятие, Windows 10">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2"><?php echo t('question_description'); ?> <span class="text-red-500">*</span></label>
+                        <textarea name="question_description" rows="5" class="w-full px-4 py-2 border rounded-lg" placeholder="Опишите подробно ваш вопрос или проблему:&#10;- Что нужно проверить?&#10;- Какая именно проблема возникла?&#10;- Когда это началось?&#10;- Что уже пытались сделать?"></textarea>
+                        <p class="text-xs text-gray-500 mt-1">
+                            <i class="fas fa-info-circle"></i>
+                            Примеры: Проверить работоспособность программ в кабинете, Консультация по настройке ПО, Помощь в установке драйверов
+                        </p>
+                    </div>
+                </div>
+                
                 <div class="flex gap-3 pt-4 border-t">
                     <button type="submit" class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2">
                         <i class="fas fa-paper-plane"></i>
@@ -381,7 +401,7 @@ $currentLang = getCurrentLanguage();
         document.querySelectorAll('.request-type-radio').forEach(radio => {
             radio.addEventListener('change', function() {
                 document.querySelectorAll('.request-type-card').forEach(card => {
-                    card.classList.remove('border-red-500', 'bg-red-50', 'border-blue-500', 'bg-blue-50', 'border-purple-500', 'bg-purple-50');
+                    card.classList.remove('border-red-500', 'bg-red-50', 'border-blue-500', 'bg-blue-50', 'border-purple-500', 'bg-purple-50', 'border-green-500', 'bg-green-50');
                     card.classList.add('border-gray-200');
                 });
                 
@@ -392,6 +412,8 @@ $currentLang = getCurrentLanguage();
                     selectedCard.classList.add('border-blue-500', 'bg-blue-50');
                 } else if (this.value === '1c_database') {
                     selectedCard.classList.add('border-purple-500', 'bg-purple-50');
+                } else if (this.value === 'general_question') {
+                    selectedCard.classList.add('border-green-500', 'bg-green-50');
                 }
                 selectedCard.classList.remove('border-gray-200');
                 
@@ -405,6 +427,8 @@ $currentLang = getCurrentLanguage();
                     document.getElementById('softwareFields').classList.remove('hidden');
                 } else if (this.value === '1c_database') {
                     document.getElementById('databaseFields').classList.remove('hidden');
+                } else if (this.value === 'general_question') {
+                    document.getElementById('generalQuestionFields').classList.remove('hidden');
                 }
             });
         });
