@@ -174,17 +174,17 @@ $allRoles = $stmt->fetchAll();
 // Данные для вкладки "Логи"
 // Статистика логов за последние 30 дней
 try {
-    $stmt = $pdo->query("SELECT COUNT(*) as total FROM user_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM login_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
     $totalLogins = $stmt->fetchColumn();
     
-    $stmt = $pdo->query("SELECT COUNT(DISTINCT user_id) as total FROM user_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+    $stmt = $pdo->query("SELECT COUNT(DISTINCT user_id) as total FROM login_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
     $uniqueUsers = $stmt->fetchColumn();
     
-    $stmt = $pdo->query("SELECT COUNT(*) as total FROM user_logs WHERE action = 'failed_login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM login_logs WHERE (action = 'login_failed' OR success = 0) AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
     $failedLogins = $stmt->fetchColumn();
     
     // Последние 50 логов
-    $stmt = $pdo->query("SELECT * FROM user_logs ORDER BY created_at DESC LIMIT 50");
+    $stmt = $pdo->query("SELECT * FROM login_logs ORDER BY created_at DESC LIMIT 50");
     $recentLogs = $stmt->fetchAll();
     
     // Топ-10 активных пользователей
@@ -195,7 +195,7 @@ try {
             role,
             COUNT(*) as login_count,
             MAX(created_at) as last_login
-        FROM user_logs
+        FROM login_logs
         WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
         GROUP BY user_id, full_name, role
         ORDER BY login_count DESC
@@ -209,7 +209,7 @@ try {
             role,
             COUNT(*) as login_count,
             COUNT(DISTINCT user_id) as unique_users
-        FROM user_logs
+        FROM login_logs
         WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
         GROUP BY role
         ORDER BY login_count DESC
@@ -289,7 +289,7 @@ $currentLang = getCurrentLanguage();
                 <i class="fas fa-user-shield text-3xl text-indigo-600"></i>
                 <div>
                     <h1 class="text-xl font-bold text-gray-800"><?php echo t('system_name'); ?></h1>
-                    <p class="text-sm text-gray-600"><?php echo t('admin'); ?>: <?php echo $user['full_name']; ?></p>
+                    <p class="text-sm text-gray-600"><?php echo !empty($user['position']) ? htmlspecialchars($user['position']) : t('admin'); ?>: <?php echo htmlspecialchars($user['full_name']); ?></p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -307,89 +307,53 @@ $currentLang = getCurrentLanguage();
     
     <div class="max-w-7xl mx-auto p-6">
         
-        <h2 class="text-2xl font-bold text-gray-800 mb-6"><?php echo t('admin_panel'); ?></h2>
-        
-        <!-- Статистика (только на главной странице) -->
-        <?php if ($tab === 'dashboard'): ?>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm text-gray-600"><?php echo t('total_requests'); ?></p>
-                        <p class="text-3xl font-bold text-gray-800"><?php echo $totalRequests; ?></p>
-                    </div>
-                    <i class="fas fa-file-alt text-4xl text-indigo-600"></i>
-                </div>
-            </div>
-            
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm text-gray-600"><?php echo t('waiting_approval'); ?></p>
-                        <p class="text-3xl font-bold text-yellow-600"><?php echo $pendingRequests; ?></p>
-                    </div>
-                    <i class="fas fa-clock text-4xl text-yellow-600"></i>
-                </div>
-            </div>
-            
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm text-gray-600"><?php echo t('in_work'); ?></p>
-                        <p class="text-3xl font-bold text-blue-600"><?php echo $inProgressRequests; ?></p>
-                    </div>
-                    <i class="fas fa-spinner text-4xl text-blue-600"></i>
-                </div>
-            </div>
-            
-            <div class="bg-white rounded-lg shadow p-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-sm text-gray-600"><?php echo t('finished'); ?></p>
-                        <p class="text-3xl font-bold text-green-600"><?php echo $completedRequests; ?></p>
-                    </div>
-                    <i class="fas fa-check-circle text-4xl text-green-600"></i>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-        
-        <!-- Вкладки -->
+        <!-- Основные вкладки -->
         <div class="mb-6">
             <div class="border-b border-gray-200">
                 <nav class="-mb-px flex gap-4 overflow-x-auto">
                     <a href="?tab=dashboard" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'dashboard' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-home"></i>
-                        <?php echo t('main'); ?>
+                        <i class="fas fa-home"></i> Главная
                     </a>
-                    <a href="?tab=requests" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'requests' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-file-alt"></i>
-                        <?php echo t('requests'); ?>
+                    <a href="?tab=users" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-users"></i> Пользователи
+                        <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs"><?php echo $totalUsers; ?></span>
                     </a>
-                    <a href="?tab=users" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-users"></i>
-                        <?php echo t('users'); ?> (<?php echo $totalUsers; ?>)
+                    <a href="?tab=cabinets" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'cabinets' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-building"></i> Кабинеты
                     </a>
-                    <a href="?tab=roles" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'roles' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-user-tag"></i>
-                        <?php echo t('roles'); ?> (<?php echo count($allRoles); ?>)
+                    <a href="?tab=roles" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'roles' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-user-tag"></i> Роли
+                        <span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full text-xs"><?php echo count($allRoles); ?></span>
                     </a>
-                    <a href="?tab=cabinets" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'cabinets' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-building"></i>
-                        <?php echo t('departments_cabinets'); ?>
-                    </a>
-                    <a href="?tab=logs" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
-                        <i class="fas fa-chart-line"></i>
-                        <?php echo t('logs'); ?>
+                    <a href="?tab=logs" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'logs' ? 'border-orange-600 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-chart-line"></i> Логи
                     </a>
                 </nav>
             </div>
         </div>
         
-        <!-- Контент вкладки Dashboard -->
+        <!-- Статистика (только на главной странице) -->
         <?php if ($tab === 'dashboard'): ?>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-xl shadow-md p-4 text-center">
+                <div class="text-3xl font-bold text-gray-800"><?php echo $totalRequests; ?></div>
+                <div class="text-sm text-gray-500">Всего заявок</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md p-4 text-center border-l-4 border-yellow-500">
+                <div class="text-3xl font-bold text-yellow-600"><?php echo $pendingRequests; ?></div>
+                <div class="text-sm text-gray-500">Ожидают</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md p-4 text-center border-l-4 border-blue-500">
+                <div class="text-3xl font-bold text-blue-600"><?php echo $inProgressRequests; ?></div>
+                <div class="text-sm text-gray-500">В работе</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md p-4 text-center border-l-4 border-green-500">
+                <div class="text-3xl font-bold text-green-600"><?php echo $completedRequests; ?></div>
+                <div class="text-sm text-gray-500">Завершено</div>
+            </div>
+        </div>
             <div class="bg-white rounded-lg shadow-md p-6">
-                <h3 class="text-lg font-bold text-gray-800 mb-4"><?php echo t('last_20_requests'); ?></h3>
+                <h3 class="text-lg font-bold text-gray-800 mb-4">Последние 20 заявок</h3>
                 <div class="overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-gray-50">
@@ -945,6 +909,7 @@ $currentLang = getCurrentLanguage();
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Пользователь</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Роль</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Действие</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип авторизации</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP-адрес</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата и время</th>
                             </tr>
@@ -952,7 +917,7 @@ $currentLang = getCurrentLanguage();
                         <tbody class="divide-y divide-gray-200">
                             <?php if (empty($recentLogs)): ?>
                                 <tr>
-                                    <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                    <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                                         <i class="fas fa-inbox text-4xl mb-2"></i>
                                         <p>Логи отсутствуют</p>
                                         <p class="text-xs mt-2">Убедитесь что выполнен SQL: create_logs_table.sql</p>
@@ -962,18 +927,31 @@ $currentLang = getCurrentLanguage();
                                 <?php foreach ($recentLogs as $log): 
                                     $actionColors = [
                                         'login' => 'bg-green-100 text-green-800',
+                                        'login_failed' => 'bg-red-100 text-red-800',
                                         'failed_login' => 'bg-red-100 text-red-800',
                                         'logout' => 'bg-gray-100 text-gray-800'
                                     ];
                                     $actionIcons = [
                                         'login' => 'fa-sign-in-alt',
+                                        'login_failed' => 'fa-times-circle',
                                         'failed_login' => 'fa-times-circle',
                                         'logout' => 'fa-sign-out-alt'
                                     ];
                                     $actionTexts = [
                                         'login' => 'Вход',
+                                        'login_failed' => 'Неудачный вход',
                                         'failed_login' => 'Неудачный вход',
                                         'logout' => 'Выход'
+                                    ];
+                                    $authTypeColors = [
+                                        'local' => 'bg-blue-100 text-blue-800',
+                                        'ldap' => 'bg-purple-100 text-purple-800',
+                                        'session' => 'bg-gray-100 text-gray-800'
+                                    ];
+                                    $authTypeTexts = [
+                                        'local' => 'Локальная',
+                                        'ldap' => 'LDAP/AD',
+                                        'session' => 'Сессия'
                                     ];
                                     $roleColors = [
                                         'admin' => 'bg-purple-100 text-purple-800',
@@ -981,22 +959,35 @@ $currentLang = getCurrentLanguage();
                                         'teacher' => 'bg-blue-100 text-blue-800',
                                         'technician' => 'bg-green-100 text-green-800'
                                     ];
+                                    // Если success = 0, показать как неудачный
+                                    $displayAction = $log['action'];
+                                    if (isset($log['success']) && $log['success'] == 0 && $log['action'] === 'login') {
+                                        $displayAction = 'login_failed';
+                                    }
                                 ?>
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-6 py-4 text-sm text-gray-900">#<?php echo $log['id']; ?></td>
                                         <td class="px-6 py-4">
-                                            <div class="text-sm font-medium text-gray-900"><?php echo $log['full_name']; ?></div>
-                                            <div class="text-xs text-gray-500"><?php echo $log['username']; ?></div>
+                                            <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($log['full_name'] ?? '-'); ?></div>
+                                            <div class="text-xs text-gray-500"><?php echo htmlspecialchars($log['username']); ?></div>
+                                            <?php if (!empty($log['error_message'])): ?>
+                                                <div class="text-xs text-red-500 mt-1"><?php echo htmlspecialchars($log['error_message']); ?></div>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="px-6 py-4">
                                             <span class="px-2 py-1 rounded-full text-xs font-medium <?php echo $roleColors[$log['role']] ?? 'bg-gray-100 text-gray-800'; ?>">
-                                                <?php echo t($log['role']); ?>
+                                                <?php echo $log['role'] ? t($log['role']) : '-'; ?>
                                             </span>
                                         </td>
                                         <td class="px-6 py-4">
-                                            <span class="px-2 py-1 rounded-full text-xs font-medium <?php echo $actionColors[$log['action']] ?? 'bg-gray-100 text-gray-800'; ?>">
-                                                <i class="fas <?php echo $actionIcons[$log['action']] ?? 'fa-circle'; ?> mr-1"></i>
-                                                <?php echo $actionTexts[$log['action']] ?? $log['action']; ?>
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium <?php echo $actionColors[$displayAction] ?? 'bg-gray-100 text-gray-800'; ?>">
+                                                <i class="fas <?php echo $actionIcons[$displayAction] ?? 'fa-circle'; ?> mr-1"></i>
+                                                <?php echo $actionTexts[$displayAction] ?? $displayAction; ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium <?php echo $authTypeColors[$log['auth_type'] ?? ''] ?? 'bg-gray-100 text-gray-800'; ?>">
+                                                <?php echo $authTypeTexts[$log['auth_type'] ?? ''] ?? ($log['auth_type'] ?? '-'); ?>
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 text-sm text-gray-500"><?php echo $log['ip_address']; ?></td>
