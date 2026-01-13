@@ -307,11 +307,63 @@ $currentLang = getCurrentLanguage();
     
     <div class="max-w-7xl mx-auto p-6">
         
+<<<<<<< HEAD
         <!-- Основные вкладки -->
+=======
+        <h2 class="text-2xl font-bold text-gray-800 mb-6">Панель администратора</h2>
+        
+        <!-- Статистика (только на главной странице) -->
+        <?php if ($tab === 'dashboard'): ?>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">Всего заявок</p>
+                        <p class="text-3xl font-bold text-gray-800"><?php echo $totalRequests; ?></p>
+                    </div>
+                    <i class="fas fa-file-alt text-4xl text-indigo-600"></i>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">Ожидают одобрения</p>
+                        <p class="text-3xl font-bold text-yellow-600"><?php echo $pendingRequests; ?></p>
+                    </div>
+                    <i class="fas fa-clock text-4xl text-yellow-600"></i>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">В работе</p>
+                        <p class="text-3xl font-bold text-blue-600"><?php echo $inProgressRequests; ?></p>
+                    </div>
+                    <i class="fas fa-spinner text-4xl text-blue-600"></i>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600">Завершено</p>
+                        <p class="text-3xl font-bold text-green-600"><?php echo $completedRequests; ?></p>
+                    </div>
+                    <i class="fas fa-check-circle text-4xl text-green-600"></i>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Вкладки -->
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         <div class="mb-6">
             <div class="border-b border-gray-200">
                 <nav class="-mb-px flex gap-4 overflow-x-auto">
                     <a href="?tab=dashboard" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'dashboard' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+<<<<<<< HEAD
                         <i class="fas fa-home"></i> Главная
                     </a>
                     <a href="?tab=users" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
@@ -327,6 +379,30 @@ $currentLang = getCurrentLanguage();
                     </a>
                     <a href="?tab=logs" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'logs' ? 'border-orange-600 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
                         <i class="fas fa-chart-line"></i> Логи
+=======
+                        <i class="fas fa-home"></i>
+                        Главная
+                    </a>
+                    <a href="?tab=requests" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'requests' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-file-alt"></i>
+                        Заявки
+                    </a>
+                    <a href="?tab=users" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-users"></i>
+                        Пользователи (<?php echo $totalUsers; ?>)
+                    </a>
+                    <a href="?tab=roles" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'roles' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-user-tag"></i>
+                        Роли (<?php echo count($allRoles); ?>)
+                    </a>
+                    <a href="?tab=cabinets" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'cabinets' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-building"></i>
+                        Отделения и кабинеты
+                    </a>
+                    <a href="?tab=logs" class="whitespace-nowrap border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $tab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
+                        <i class="fas fa-chart-line"></i>
+                        Логи
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
                     </a>
                 </nav>
             </div>

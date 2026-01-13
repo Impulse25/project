@@ -1,9 +1,13 @@
 <?php
+<<<<<<< HEAD
 // includes/language.php - Многоязычность (ПОЛНАЯ ВЕРСИЯ)
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+=======
+// includes/language.php - Многоязычность
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
 
 if (!isset($_SESSION['lang'])) {
     $_SESSION['lang'] = 'ru';
@@ -21,7 +25,10 @@ function getCurrentLanguage() {
 
 $translations = [
     'ru' => [
+<<<<<<< HEAD
         // === ОБЩИЕ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'system_name' => 'Система заявок СВГТК',
         'login' => 'Логин',
         'password' => 'Пароль',
@@ -35,6 +42,7 @@ $translations = [
         'edit' => 'Редактировать',
         'details' => 'Подробнее',
         'back' => 'Назад',
+<<<<<<< HEAD
         'close' => 'Закрыть',
         'yes' => 'Да',
         'no' => 'Нет',
@@ -47,18 +55,24 @@ $translations = [
         'export' => 'Экспорт',
         
         // === РОЛИ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'teacher' => 'Преподаватель',
         'director' => 'Директор',
         'technician' => 'Системотехник',
         'admin' => 'Администратор',
+<<<<<<< HEAD
         
         // === МЕНЮ И НАВИГАЦИЯ ===
         'main' => 'Главная',
         'dashboard' => 'Панель управления',
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'my_requests' => 'Мои заявки',
         'create_request' => 'Создать заявку',
         'new_request' => 'Новая заявка',
         'all_requests' => 'Все заявки',
+<<<<<<< HEAD
         'requests' => 'Заявки',
         'users' => 'Пользователи',
         'roles' => 'Роли',
@@ -77,10 +91,19 @@ $translations = [
         // === СТАТУСЫ ===
         'status' => 'Статус',
         'pending' => 'Ожидает',
+=======
+        'approved_requests' => 'Одобренные заявки',
+        'pending_approval' => 'Заявки на одобрение',
+        'repair' => 'Ремонт и обслуживание',
+        'software' => 'Установка ПО',
+        '1c_database' => 'Создание БД 1С',
+        'pending' => 'Ожидает одобрения',
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'approved' => 'Одобрена',
         'rejected' => 'Отклонена',
         'in_progress' => 'В работе',
         'completed' => 'Завершена',
+<<<<<<< HEAD
         'awaiting_approval' => 'Ожидает подтверждения',
         'awaiting_director' => 'Ожидает директора',
         
@@ -92,6 +115,8 @@ $translations = [
         'priority_urgent' => 'Срочный',
         
         // === ПОЛЯ ФОРМЫ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'full_name' => 'ФИО',
         'position' => 'Должность',
         'cabinet' => 'Кабинет',
@@ -107,11 +132,14 @@ $translations = [
         'question_description' => 'Описание вопроса/проблемы',
         'software_or_system' => 'Программа/Система',
         'comment' => 'Комментарий',
+<<<<<<< HEAD
         'deadline' => 'Срок выполнения',
         'created_at' => 'Дата создания',
         'updated_at' => 'Дата обновления',
         
         // === ДЕЙСТВИЯ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'approve' => 'Одобрить',
         'reject' => 'Отклонить',
         'take_to_work' => 'Взять в работу',
@@ -119,6 +147,7 @@ $translations = [
         'send_for_approval' => 'Отправить на подтверждение',
         'send_to_director' => 'Отправить директору',
         'add_comment' => 'Добавить комментарий',
+<<<<<<< HEAD
         'set_deadline' => 'Установить срок',
         'confirm' => 'Подтвердить',
         'return_to_work' => 'Вернуть в работу',
@@ -134,11 +163,14 @@ $translations = [
         'tab_all' => 'Все заявки',
         
         // === СООБЩЕНИЯ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'no_requests' => 'Нет заявок',
         'no_pending_requests' => 'Нет заявок, ожидающих одобрения',
         'no_active_requests' => 'Нет активных заявок',
         'no_archive_requests' => 'Архив пуст',
         'login_error' => 'Неверный логин или пароль',
+<<<<<<< HEAD
         'request_created' => 'Заявка успешно создана',
         'request_updated' => 'Заявка обновлена',
         'request_deleted' => 'Заявка удалена',
@@ -180,10 +212,18 @@ $translations = [
         'additional_info' => 'Дополнительная информация',
         'request_details' => 'Детали заявки',
         'quick_actions' => 'Быстрые действия',
+=======
+        'created' => 'Создана',
+        'from' => 'От',
+        'date' => 'Дата',
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     ],
     
     'kk' => [
+<<<<<<< HEAD
         // === ЖАЛПЫ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'system_name' => 'СВГТК өтінімдер жүйесі',
         'login' => 'Логин',
         'password' => 'Құпия сөз',
@@ -197,6 +237,7 @@ $translations = [
         'edit' => 'Өңдеу',
         'details' => 'Толығырақ',
         'back' => 'Артқа',
+<<<<<<< HEAD
         'close' => 'Жабу',
         'yes' => 'Иә',
         'no' => 'Жоқ',
@@ -209,18 +250,24 @@ $translations = [
         'export' => 'Экспорт',
         
         // === РӨЛДЕР ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'teacher' => 'Оқытушы',
         'director' => 'Директор',
         'technician' => 'Жүйелік техник',
         'admin' => 'Әкімші',
+<<<<<<< HEAD
         
         // === МӘЗІР ЖӘНЕ НАВИГАЦИЯ ===
         'main' => 'Басты бет',
         'dashboard' => 'Басқару тақтасы',
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'my_requests' => 'Менің өтінімдерім',
         'create_request' => 'Өтінім жасау',
         'new_request' => 'Жаңа өтінім',
         'all_requests' => 'Барлық өтінімдер',
+<<<<<<< HEAD
         'requests' => 'Өтінімдер',
         'users' => 'Пайдаланушылар',
         'roles' => 'Рөлдер',
@@ -239,10 +286,19 @@ $translations = [
         // === КҮЙЛЕР ===
         'status' => 'Күйі',
         'pending' => 'Күтуде',
+=======
+        'approved_requests' => 'Бекітілген өтінімдер',
+        'pending_approval' => 'Бекітуді күтуде',
+        'repair' => 'Жөндеу және қызмет көрсету',
+        'software' => 'Бағдарлама орнату',
+        '1c_database' => '1С дерекқорын құру',
+        'pending' => 'Бекітуді күтуде',
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'approved' => 'Бекітілді',
         'rejected' => 'Қабылданбады',
         'in_progress' => 'Орындалуда',
         'completed' => 'Аяқталды',
+<<<<<<< HEAD
         'awaiting_approval' => 'Растауды күтуде',
         'awaiting_director' => 'Директорды күтуде',
         
@@ -254,6 +310,8 @@ $translations = [
         'priority_urgent' => 'Шұғыл',
         
         // === ФОРМА ӨРІСТЕРІ ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'full_name' => 'Аты-жөні',
         'position' => 'Лауазымы',
         'cabinet' => 'Кабинет',
@@ -269,11 +327,14 @@ $translations = [
         'question_description' => 'Сұрақ/мәселе сипаттамасы',
         'software_or_system' => 'Бағдарлама/Жүйе',
         'comment' => 'Түсініктеме',
+<<<<<<< HEAD
         'deadline' => 'Орындау мерзімі',
         'created_at' => 'Құрылған күні',
         'updated_at' => 'Жаңартылған күні',
         
         // === ӘРЕКЕТТЕР ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'approve' => 'Бекіту',
         'reject' => 'Қабылдамау',
         'take_to_work' => 'Жұмысқа алу',
@@ -281,6 +342,7 @@ $translations = [
         'send_for_approval' => 'Растауға жіберу',
         'send_to_director' => 'Директорға жіберу',
         'add_comment' => 'Түсініктеме қосу',
+<<<<<<< HEAD
         'set_deadline' => 'Мерзім белгілеу',
         'confirm' => 'Растау',
         'return_to_work' => 'Жұмысқа қайтару',
@@ -296,11 +358,14 @@ $translations = [
         'tab_all' => 'Барлық өтінімдер',
         
         // === ХАБАРЛАМАЛАР ===
+=======
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         'no_requests' => 'Өтінімдер жоқ',
         'no_pending_requests' => 'Бекітуді күтетін өтінімдер жоқ',
         'no_active_requests' => 'Белсенді өтінімдер жоқ',
         'no_archive_requests' => 'Мұрағат бос',
         'login_error' => 'Логин немесе құпия сөз дұрыс емес',
+<<<<<<< HEAD
         'request_created' => 'Өтінім сәтті жасалды',
         'request_updated' => 'Өтінім жаңартылды',
         'request_deleted' => 'Өтінім жойылды',
@@ -342,6 +407,11 @@ $translations = [
         'additional_info' => 'Қосымша ақпарат',
         'request_details' => 'Өтінім мәліметтері',
         'quick_actions' => 'Жылдам әрекеттер',
+=======
+        'created' => 'Жасалды',
+        'from' => 'Кімнен',
+        'date' => 'Күні',
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     ]
 ];
 
@@ -350,6 +420,7 @@ function t($key) {
     $lang = getCurrentLanguage();
     return $translations[$lang][$key] ?? $key;
 }
+<<<<<<< HEAD
 
 /**
  * Получить перевод приоритета
@@ -388,3 +459,6 @@ function tRole($role) {
     return t($role);
 }
 ?>
+=======
+?>
+>>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581

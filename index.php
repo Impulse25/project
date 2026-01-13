@@ -1,6 +1,4 @@
 <?php
-// index.php - Страница входа (С ФИКСОМ СЕССИИ)
-
 require_once 'config/db.php';
 require_once 'config/ldap.php';
 require_once 'includes/auth.php';
