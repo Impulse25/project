@@ -1,0 +1,44 @@
+name: PHP Code Quality Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Скачать код из репозитория
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Шаг 2: Установить PHP нужной версии
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      # Шаг 3: Установить зависимости (phpcs и др.)
+      - name: Install Composer dependencies
+        run: composer install --no-progress --prefer-dist
+
+      # Шаг 4: Проверка синтаксиса PHP во всех .php файлах
+      - name: PHP Lint (syntax check)
+        run: |
+          find . -name "*.php" \
+            -not -path "./vendor/*" \
+            -exec php -l {} \;
+          echo 'PHP Lint completed successfully!'
+
+      # Шаг 5: Проверка стиля кода по стандарту PSR-12
+      - name: PHP CodeSniffer (code style)
+        run: |
+          ./vendor/bin/phpcs \
+            --standard=PSR12 \
+            --extensions=php \
+            --ignore=vendor/ \
+            .
