@@ -1,0 +1,11 @@
+{
+    "name": "student/my-project",
+    "description": "My project",
+    "type": "project",
+    "require": {
+        "php": ">=8.0"
+    },
+    "require-dev": {
+        "squizlabs/php_codesniffer": "^3.0"
+    }
+}
