@@ -35,8 +35,5 @@ jobs:
           php-version: '8.1'
           tools: phpcs
       - name: Run PHPCS
-        run: |
-          phpcs --standard=PSR12 --extensions=php \
-            --ignore=vendor/,node_modules/ \
-            --report=summary .
-          echo 'Code style check completed!'
+        run: phpcs
+          
