@@ -22,53 +22,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     
     if ($action === 'approve') {
-<<<<<<< HEAD
         $comment = $_POST['approval_comment'] ?? '';
         $stmt = $pdo->prepare("UPDATE requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
         $stmt->execute([$user['id'], $requestId]);
-=======
-        // Одобрение заявки
-        $comment = $_POST['approval_comment'] ?? '';
-        
-        $stmt = $pdo->prepare("UPDATE requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
-        $stmt->execute([$user['id'], $requestId]);
-        
-        // Добавить комментарий директора
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         if ($comment) {
             $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
             $stmt->execute([$requestId, $user['id'], $comment]);
         }
-<<<<<<< HEAD
         $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, new_status, comment) VALUES (?, ?, 'approved', 'approved', ?)");
         $stmt->execute([$requestId, $user['id'], 'Одобрено директором: ' . $comment]);
-=======
-        
-        // Лог
-        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, new_status, comment) VALUES (?, ?, 'approved', 'approved', ?)");
-        $stmt->execute([$requestId, $user['id'], 'Одобрено директором: ' . $comment]);
-        
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     } elseif ($action === 'reject') {
         // Отклонение заявки
         $reason = $_POST['reason'] ?? '';
         
         $stmt = $pdo->prepare("UPDATE requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
         $stmt->execute([$user['id'], $reason, $requestId]);
-<<<<<<< HEAD
 =======
         
         // Добавить комментарий директора об отклонении
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         if ($reason) {
             $stmt = $pdo->prepare("INSERT INTO comments (request_id, user_id, comment) VALUES (?, ?, ?)");
             $stmt->execute([$requestId, $user['id'], 'Заявка отклонена. Причина: ' . $reason]);
         }
-<<<<<<< HEAD
-=======
-        
-        // Лог
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
         $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, new_status, comment) VALUES (?, ?, 'rejected', 'rejected', ?)");
         $stmt->execute([$requestId, $user['id'], 'Отклонено: ' . $reason]);
     }
@@ -76,13 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit();
 }
 
-<<<<<<< HEAD
 // Запросы для заявок
 $stmt = $pdo->query("SELECT r.*, u.full_name as creator_name, u.position FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status = 'awaiting_approval' AND r.sent_to_director = 1 ORDER BY r.created_at DESC");
-=======
-// Получение заявок на одобрение (только те, что техники отправили на согласование)
-$stmt = $pdo->query("SELECT r.*, u.full_name as creator_name FROM requests r JOIN users u ON r.created_by = u.id WHERE r.status = 'awaiting_approval' ORDER BY r.created_at DESC");
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
 $pendingRequests = $stmt->fetchAll();
 $pendingCount = count($pendingRequests);
 
@@ -194,7 +164,6 @@ $isStatsTab = ($tab === 'stats');
     <div class="max-w-7xl mx-auto p-6">
         
         <div class="mb-6">
-<<<<<<< HEAD
             <div class="border-b border-gray-200">
                 <nav class="-mb-px flex gap-4">
                     <a href="?tab=pending" class="border-b-2 py-3 px-4 font-medium flex items-center gap-2 <?php echo $isRequestsTab ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'; ?>">
@@ -205,127 +174,6 @@ $isStatsTab = ($tab === 'stats');
                         <i class="fas fa-chart-bar"></i> Статистика IT-отдела
                     </a>
                 </nav>
-=======
-            <h2 class="text-2xl font-bold text-gray-800"><?php echo t('pending_approval'); ?></h2>
-        </div>
-        
-        <!-- Заявки на одобрение -->
-        <div class="space-y-4 mb-8">
-            <?php if (empty($pendingRequests)): ?>
-                <div class="bg-gray-50 rounded-lg p-12 text-center">
-                    <i class="fas fa-clock text-6xl text-gray-400 mb-4"></i>
-                    <p class="text-gray-600"><?php echo t('no_pending_requests'); ?></p>
-                </div>
-            <?php else: ?>
-                <?php foreach ($pendingRequests as $req): 
-                    $typeColors = [
-                        'repair' => 'border-red-200',
-                        'software' => 'border-blue-200',
-                        '1c_database' => 'border-purple-200'
-                    ];
-                ?>
-                    <div class="bg-white rounded-lg shadow-md p-6 border-l-4 <?php echo $typeColors[$req['request_type']]; ?>">
-                        <div class="mb-4">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="text-xs font-semibold text-indigo-600 uppercase"><?php echo t($req['request_type']); ?></span>
-                                <span class="px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
-                                    На согласовании (от техника)
-                                </span>
-                            </div>
-                            <h3 class="text-lg font-semibold text-gray-800">
-                                <?php echo t('cabinet'); ?>: <?php echo $req['cabinet']; ?>
-                                <?php 
-                                if ($req['request_type'] === 'repair') {
-                                    echo ' - ' . $req['equipment_type'];
-                                } elseif ($req['request_type'] === '1c_database') {
-                                    echo ' - ' . t('group_number') . ': ' . $req['group_number'];
-                                }
-                                ?>
-                            </h3>
-                            <p class="text-sm text-gray-600 mt-2">
-                                <?php echo $req['description'] ?? $req['justification'] ?? $req['database_purpose']; ?>
-                            </p>
-                            
-                            <div class="mt-3 p-3 bg-gray-50 rounded-lg text-sm">
-                                <p class="text-gray-700"><strong><?php echo t('from'); ?>:</strong> <?php echo $req['creator_name']; ?> (<?php echo $req['position']; ?>)</p>
-                                <p class="text-gray-700"><strong><?php echo t('cabinet'); ?>:</strong> <?php echo $req['cabinet']; ?></p>
-                                <?php if ($req['inventory_number']): ?>
-                                    <p class="text-gray-700"><strong><?php echo t('inventory_number'); ?>:</strong> <?php echo $req['inventory_number']; ?></p>
-                                <?php endif; ?>
-                                <p class="text-gray-700"><strong><?php echo t('date'); ?>:</strong> <?php echo date('d.m.Y H:i', strtotime($req['created_at'])); ?></p>
-                            </div>
-                        </div>
-                        
-                        <!-- ИСПРАВЛЕННАЯ ФОРМА - убран flex с кнопок -->
-                        <div class="flex gap-3 pt-4 border-t">
-                            <button type="button" onclick="showApproveModal(<?php echo $req['id']; ?>)" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition" style="text-align:center;">
-                                <i class="fas fa-check-circle"></i>
-                                <?php echo t('approve'); ?>
-                            </button>
-                            <button type="button" onclick="showRejectModal(<?php echo $req['id']; ?>)" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition" style="text-align:center;">
-                                <i class="fas fa-times-circle"></i>
-                                <?php echo t('reject'); ?>
-                            </button>
-                            <a href="view_request.php?id=<?php echo $req['id']; ?>" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-2" style="text-align:center;">
-                                <i class="fas fa-eye"></i>
-                                Просмотр
-                            </a>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-        
-        <!-- Все заявки -->
-        <div>
-            <h3 class="text-xl font-semibold text-gray-800 mb-4"><?php echo t('all_requests'); ?></h3>
-            <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                <table class="w-full">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('request_type'); ?></th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('cabinet'); ?></th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('from'); ?></th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('pending'); ?></th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase"><?php echo t('date'); ?></th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        <?php foreach ($allRequests as $req): 
-                            $statusColors = [
-                                'pending' => 'bg-yellow-100 text-yellow-800',
-                                'approved' => 'bg-green-100 text-green-800',
-                                'rejected' => 'bg-red-100 text-red-800',
-                                'in_progress' => 'bg-blue-100 text-blue-800',
-                                'completed' => 'bg-gray-100 text-gray-800',
-                                'awaiting_approval' => 'bg-purple-100 text-purple-800',
-                                'waiting_confirmation' => 'bg-green-100 text-green-800'
-                            ];
-                        ?>
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-4 text-sm text-gray-900">#<?php echo $req['id']; ?></td>
-                                <td class="px-6 py-4 text-xs font-medium text-gray-600"><?php echo t($req['request_type']); ?></td>
-                                <td class="px-6 py-4 text-sm text-gray-900"><?php echo $req['cabinet']; ?></td>
-                                <td class="px-6 py-4 text-sm text-gray-700"><?php echo $req['creator_name']; ?></td>
-                                <td class="px-6 py-4">
-                                    <span class="px-2 py-1 rounded-full text-xs font-medium <?php echo $statusColors[$req['status']]; ?>">
-                                        <?php echo t($req['status']); ?>
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-500"><?php echo date('d.m.Y', strtotime($req['created_at'])); ?></td>
-                                <td class="px-6 py-4">
-                                    <a href="view_request.php?id=<?php echo $req['id']; ?>" class="text-indigo-600 hover:text-indigo-900 text-sm font-medium flex items-center gap-1">
-                                        <i class="fas fa-eye"></i>
-                                        Просмотр
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
             </div>
         </div>
         
@@ -635,7 +483,6 @@ $isStatsTab = ($tab === 'stats');
         </div>
     </div>
     
-<<<<<<< HEAD
     <div id="rejectModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index:1000;">
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold mb-4 text-red-600"><i class="fas fa-times-circle mr-2"></i>Отклонить заявку</h3>
@@ -644,85 +491,15 @@ $isStatsTab = ($tab === 'stats');
                 <input type="hidden" name="action" value="reject">
                 <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-2">Причина: *</label><textarea name="reason" class="w-full px-4 py-2 border rounded-lg" rows="3" required></textarea></div>
                 <div class="flex gap-3"><button type="submit" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">Отклонить</button><button type="button" onclick="hideRejectModal()" class="flex-1 bg-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300">Отмена</button></div>
-=======
-    <!-- Модальное окно одобрения -->
-    <div id="approveModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index:1000;">
-        <div class="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 class="text-lg font-semibold mb-4 text-green-600">
-                <i class="fas fa-check-circle mr-2"></i>
-                Одобрить заявку
-            </h3>
-            <form method="POST" id="approveForm">
-                <input type="hidden" name="request_id" id="approveRequestId">
-                <input type="hidden" name="action" value="approve">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Комментарий (необязательно):</label>
-                    <textarea name="approval_comment" class="w-full px-4 py-2 border rounded-lg" rows="3" placeholder="Напишите комментарий к одобрению..."></textarea>
-                    <p class="text-xs text-gray-500 mt-1">Например: "Одобряю покупку до 5000₸" или "Согласовано"</p>
-                </div>
-                <div class="flex gap-3">
-                    <button type="submit" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-                        <i class="fas fa-check mr-1"></i>
-                        Одобрить
-                    </button>
-                    <button type="button" onclick="hideApproveModal()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300">Отмена</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Модальное окно отклонения -->
-    <div id="rejectModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style="z-index:1000;">
-        <div class="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 class="text-lg font-semibold mb-4 text-red-600">
-                <i class="fas fa-times-circle mr-2"></i>
-                Отклонить заявку
-            </h3>
-            <form method="POST" id="rejectForm">
-                <input type="hidden" name="request_id" id="rejectRequestId">
-                <input type="hidden" name="action" value="reject">
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Причина отклонения: *</label>
-                    <textarea name="reason" class="w-full px-4 py-2 border rounded-lg" rows="3" placeholder="Укажите причину отклонения..." required></textarea>
-                    <p class="text-xs text-gray-500 mt-1">Например: "Превышен бюджет" или "Не согласовано с бухгалтерией"</p>
-                </div>
-                <div class="flex gap-3">
-                    <button type="submit" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
-                        <i class="fas fa-times mr-1"></i>
-                        Отклонить
-                    </button>
-                    <button type="button" onclick="hideRejectModal()" class="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300">Отмена</button>
-                </div>
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
             </form>
         </div>
     </div>
     
     <script>
-<<<<<<< HEAD
         function showApproveModal(id) { document.getElementById('approveRequestId').value = id; document.getElementById('approveModal').classList.remove('hidden'); }
         function hideApproveModal() { document.getElementById('approveModal').classList.add('hidden'); }
         function showRejectModal(id) { document.getElementById('rejectRequestId').value = id; document.getElementById('rejectModal').classList.remove('hidden'); }
         function hideRejectModal() { document.getElementById('rejectModal').classList.add('hidden'); }
-=======
-        function showApproveModal(requestId) {
-            document.getElementById('approveRequestId').value = requestId;
-            document.getElementById('approveModal').classList.remove('hidden');
-        }
-        
-        function hideApproveModal() {
-            document.getElementById('approveModal').classList.add('hidden');
-        }
-        
-        function showRejectModal(requestId) {
-            document.getElementById('rejectRequestId').value = requestId;
-            document.getElementById('rejectModal').classList.remove('hidden');
-        }
-        
-        function hideRejectModal() {
-            document.getElementById('rejectModal').classList.add('hidden');
-        }
->>>>>>> ae83841d72d8ff3b9f96d54572e7259dd3d73581
     </script>
 </body>
 </html>
