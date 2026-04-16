@@ -15,7 +15,7 @@ $stmt=$pdo->query("SELECT COUNT(*) FROM users"); $totalUsers=$stmt->fetchColumn(
 $stmt=$pdo->query("SELECT COUNT(*) FROM roles"); $totalRoles=$stmt->fetchColumn();
 $stmt=$pdo->query("SELECT COUNT(*) FROM cabinets"); $totalCabinets=$stmt->fetchColumn();
 $stmt=$pdo->query("SELECT COUNT(*) FROM departments"); $totalDepts=$stmt->fetchColumn();
-$recentRequests=$pdo->query("SELECT r.*,u.full_name as creator_name FROM requests r JOIN users u ON r.created_by=u.id ORDER BY r.created_at DESC LIMIT 10")->fetchAll();
+// Последние заявки перенесены в раздел 'Заявки в ИТ'
 try {
     $stmt=$pdo->query("SELECT COUNT(*) FROM login_logs WHERE action='login' AND created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)"); $totalLogins=$stmt->fetchColumn();
     $stmt=$pdo->query("SELECT COUNT(*) FROM login_logs WHERE (action='login_failed' OR success=0) AND created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)"); $failedLogins=$stmt->fetchColumn();
@@ -756,7 +756,7 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
     </a>
 
     <div class="nav-section-label" style="margin-top:var(--space-4)">Заявки в ИТ</div>
-    <a href="teacher_dashboard.php" class="nav-item">
+    <a href="admin_requests.php" class="nav-item">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
       <span>Все заявки</span>
     </a>
@@ -910,49 +910,7 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-warning)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
-      <a href="teacher_dashboard.php" class="module-card">
-        <div class="module-card-accent" style="background:#7c3aed"></div>
-        <div class="module-icon" style="background:#ede9fe;color:#7c3aed">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
-        </div>
-        <div style="font-weight:700;font-size:.9375rem;color:var(--color-text)">Заявки в ИТ</div>
-        <div style="font-size:.8125rem;color:var(--color-text-muted)">Все заявки от преподавателей на ремонт и ПО.</div>
-        <div class="module-footer">
-          <span style="font-size:.8125rem;color:<?= $pendingRequests>0?'var(--color-error)':'var(--color-text-muted)' ?>"><?= $pendingRequests ?> ожидают · <?= $inProgressRequests ?> в работе</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#7c3aed"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-      </a>
-    </div>
-
-    <!-- Последние заявки -->
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Последние заявки
-        </span>
-        <a href="teacher_dashboard.php" class="btn btn-outline btn-sm">Все заявки</a>
       </div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>ID</th><th>Тип</th><th>Кабинет</th><th>От кого</th><th>Статус</th><th>Дата</th></tr></thead>
-          <tbody>
-            <?php if(empty($recentRequests)): ?>
-              <tr><td colspan="6" class="empty-cell">Заявок нет</td></tr>
-            <?php else: foreach($recentRequests as $req): ?>
-              <tr>
-                <td style="color:var(--color-text-faint);font-size:.8125rem">#<?= $req['id'] ?></td>
-                <td><?= ['repair'=>'Ремонт','software'=>'ПО','1c_database'=>'1С','general_question'=>'Вопрос'][$req['request_type']]??$req['request_type'] ?></td>
-                <td><?= htmlspecialchars($req['cabinet']) ?></td>
-                <td><?= htmlspecialchars($req['creator_name']) ?></td>
-                <td><?= statusBadge($req['status']) ?></td>
-                <td style="color:var(--color-text-faint);font-size:.8125rem"><?= date('d.m.Y H:i',strtotime($req['created_at'])) ?></td>
-              </tr>
-            <?php endforeach; endif; ?>
-          </tbody>
-        </table>
-      </div>
-    </div>
 
   </main>
 </div>

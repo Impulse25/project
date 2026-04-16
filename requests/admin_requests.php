@@ -1,22 +1,55 @@
 <?php
-// edu/index.php — Заглушка модуля "Учебный процесс" (Тема 6)
-session_start();
+// admin_requests.php — Управление заявками в ИТ (для администратора)
+require_once 'config/db.php';
+require_once 'includes/auth.php';
+require_once 'includes/language.php';
+requireRole('admin');
+$user = getCurrentUser();
 
-// Проверяем роль пользователя из сессии requests
-$userRole = $_SESSION['role'] ?? '';
-$userName = $_SESSION['full_name'] ?? '';
-$isAdmin  = in_array($userRole, ['admin', 'director']);
-$isLoggedIn = isset($_SESSION['user_id']);
+if (isset($_GET['lang'])) { setLanguage($_GET['lang']); header('Location: admin_requests.php'); exit(); }
 
-$nameParts = explode(' ', trim($userName));
-$initials  = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
+// Фильтры
+$status = $_GET['status'] ?? '';
+$type   = $_GET['type'] ?? '';
+$search = $_GET['search'] ?? '';
+
+$where = ['1=1'];
+$params = [];
+if ($status) { $where[] = 'r.status=?'; $params[] = $status; }
+if ($type)   { $where[] = 'r.request_type=?'; $params[] = $type; }
+if ($search) { $where[] = '(u.full_name LIKE ? OR r.cabinet LIKE ? OR r.description LIKE ?)'; $params = array_merge($params, ["%$search%","%$search%","%$search%"]); }
+
+$sql = "SELECT r.*, u.full_name as creator_name FROM requests r 
+        JOIN users u ON r.created_by=u.id 
+        WHERE " . implode(' AND ', $where) . " 
+        ORDER BY r.created_at DESC LIMIT 100";
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$allRequests = $stmt->fetchAll();
+
+$stmt=$pdo->query("SELECT COUNT(*) FROM requests"); $totalRequests=$stmt->fetchColumn();
+$stmt=$pdo->query("SELECT COUNT(*) FROM requests WHERE status='pending'"); $pendingRequests=$stmt->fetchColumn();
+$stmt=$pdo->query("SELECT COUNT(*) FROM requests WHERE status='in_progress'"); $inProgressRequests=$stmt->fetchColumn();
+$stmt=$pdo->query("SELECT COUNT(*) FROM requests WHERE status='completed'"); $completedRequests=$stmt->fetchColumn();
+$stmt=$pdo->query("SELECT COUNT(*) FROM users"); $totalUsers=$stmt->fetchColumn();
+
+$currentLang = getCurrentLanguage();
+$nameParts = explode(' ', trim($user['full_name']));
+$initials = implode('', array_map(fn($p)=>mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
+
+function statusBadge($s){
+    $m=['pending'=>['Ожидает','badge-amber'],'approved'=>['Одобрена','badge-blue'],
+        'in_progress'=>['В работе','badge-blue'],'awaiting_approval'=>['Подтверждение','badge-gray'],
+        'completed'=>['Завершена','badge-green'],'rejected'=>['Отклонена','badge-red']];
+    $d=$m[$s]??[$s,'badge-gray'];
+    return '<span class="badge '.$d[1].'">'.htmlspecialchars($d[0]).'</span>';
+}
 ?>
 <!DOCTYPE html>
-<html lang="ru" data-theme="light">
+<html lang="<?= $currentLang ?>" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Учебный процесс — СВГТК Портал</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Заявки в ИТ — СВГТК Портал</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
@@ -677,6 +710,21 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
   body { background: white; }
 }
 
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--radius-full);font-size:.75rem;font-weight:500;white-space:nowrap}
+.badge-blue{background:var(--color-primary-highlight);color:var(--color-primary)}
+.badge-green{background:var(--color-success-highlight);color:var(--color-success)}
+.badge-amber{background:var(--color-warning-highlight);color:var(--color-warning)}
+.badge-red{background:var(--color-error-highlight);color:var(--color-error)}
+.badge-gray{background:var(--color-surface-offset);color:var(--color-text-muted)}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem}
+.kpi-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl);padding:1.25rem;box-shadow:var(--shadow-sm)}
+.kpi-label{font-size:.75rem;color:var(--color-text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
+.kpi-value{font-family:var(--font-display);font-size:1.75rem;font-weight:700;color:var(--color-text)}
+.kpi-sub{font-size:.8125rem;color:var(--color-text-muted);margin-top:.25rem}
+.filter-bar{display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.5rem;align-items:center}
+.filter-select{border:1.5px solid var(--color-border);border-radius:var(--radius-md);padding:.375rem .75rem;font:inherit;font-size:.875rem;color:var(--color-text);background:var(--color-surface);cursor:pointer}
+.search-input{border:1.5px solid var(--color-border);border-radius:var(--radius-md);padding:.375rem .875rem;font:inherit;font-size:.875rem;color:var(--color-text);background:var(--color-surface);min-width:220px}
+.search-input:focus,.filter-select:focus{outline:none;border-color:var(--color-primary)}
   </style>
 </head>
 <body>
@@ -684,105 +732,184 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <div class="logo">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-        <rect width="32" height="32" rx="8" fill="#1a56db"/>
-        <text x="16" y="22" text-anchor="middle" font-family="Montserrat,sans-serif" font-weight="700" font-size="13" fill="white">СП</text>
-      </svg>
-      <div class="logo-text">
-        <span class="logo-title">СВГТК Портал</span>
-        <span class="logo-sub">Учебный процесс</span>
-      </div>
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#1a56db"/><text x="16" y="22" text-anchor="middle" font-family="Montserrat,sans-serif" font-weight="700" font-size="13" fill="white">СП</text></svg>
+      <div class="logo-text"><span class="logo-title">СВГТК Портал</span><span class="logo-sub">Администратор</span></div>
     </div>
-    <button class="sidebar-toggle" id="sidebarToggle">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
+    <button class="sidebar-toggle" id="sidebarToggle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
   </div>
   <nav class="sidebar-nav">
-    <div class="nav-section-label">Навигация</div>
-    <a href="index.php" class="nav-item active">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
-      <span>Учебный процесс</span>
+
+    <div class="nav-section-label">Система</div>
+    <a href="admin_dashboard.php" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span>Дашборд</span>
+    </a>
+    <a href="users.php" class="nav-item ">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Пользователи и роли</span>
+    </a>
+    <a href="admin_cabinets.php" class="nav-item ">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Кабинеты и отделения</span>
+    </a>
+    <a href="admin_logs.php" class="nav-item ">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <span>Журнал входов</span>
     </a>
 
-    <div class="nav-section-label" style="margin-top:1rem">Портал</div>
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Заявки в ИТ</div>
+    <a href="admin_requests.php" class="nav-item active">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+      <span>Все заявки</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Учебный процесс</div>
+    <a href="../edu/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Расписание и группы</span>
+    </a>
+    <a href="../edu/students.php" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Студенты</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Посещаемость</div>
+    <a href="../attendance/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Журнал посещаемости</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Достижения</div>
+    <a href="../achievements/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
+      <span>Портфолио</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">УМР</div>
+    <a href="../umr/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span>Документы</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">HR-аналитика</div>
+    <a href="../hr/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      <span>Выпускники</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Аналитика</div>
+    <a href="../analytics/" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      <span>Сводные отчёты</span>
+    </a>
+
+    <div class="nav-section-label" style="margin-top:var(--space-4)">Портал</div>
     <a href="../" class="nav-item">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      <span>Главная</span>
-    </a>
-    <a href="../requests/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span>Заявки в ИТ</span>
+      <span>Главная портала</span>
     </a>
 
-    <?php if($isAdmin): ?>
-    <div class="nav-section-label" style="margin-top:1rem">Администрирование</div>
-    <a href="../requests/admin_dashboard.php" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-      <span>Дашборд админа</span>
-    </a>
-    <a href="../requests/users.php" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-      <span>Пользователи</span>
-    </a>
-    <?php endif ?>
   </nav>
-  <div class="sidebar-footer">
-    <div class="college-info">
-      <span>СВГТК им. Абая Кунанбаева</span>
-      <span>г. Сарань</span>
-    </div>
-  </div>
+  <div class="sidebar-footer"><div class="college-info"><span>СВГТК им. Абая Кунанбаева</span><span>г. Сарань</span></div></div>
 </aside>
 
 <div class="main-wrapper" id="mainWrapper">
   <header class="topbar">
     <div class="topbar-left">
       <div class="breadcrumb">
-        <span class="breadcrumb-root"><a href="../" style="color:inherit">СВГТК</a></span>
+        <span class="breadcrumb-root"><a href="admin_dashboard.php" style="color:inherit">Дашборд</a></span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        <span class="breadcrumb-current">Учебный процесс</span>
+        <span class="breadcrumb-current">Заявки в ИТ</span>
       </div>
     </div>
     <div class="topbar-right">
-      <?php if($isLoggedIn): ?>
-      <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?></div>
-      <?php if($isAdmin): ?>
+      <a href="?lang=ru" class="btn btn-sm <?= $currentLang==='ru'?'btn-primary':'btn-outline' ?>">Рус</a>
+      <a href="?lang=kk" class="btn btn-sm <?= $currentLang==='kk'?'btn-primary':'btn-outline' ?>">Қаз</a>
+      <button class="theme-toggle" id="themeToggle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+      <div class="user-avatar"><?= $initials ?></div>
       <span style="width:1px;height:20px;background:var(--color-divider)"></span>
-      <a href="../requests/admin_dashboard.php" class="btn btn-outline btn-sm">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        В админку
-      </a>
-      <?php endif ?>
-      <?php endif ?>
-      <button class="theme-toggle" id="themeToggle">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
+      <a href="logout.php" class="btn btn-outline btn-sm"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Выход</a>
     </div>
   </header>
 
-  <main class="page-content" style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - var(--topbar-height))">
-    <div style="text-align:center;max-width:480px">
-      <div style="width:80px;height:80px;border-radius:20px;background:#1a56db20;display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1a56db" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+  <main class="page-content">
+    <div style="margin-bottom:1.5rem;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <h1 style="font-family:var(--font-display);font-size:1.5rem;font-weight:700;color:var(--color-text)">Заявки в ИТ</h1>
+        <p style="font-size:.9375rem;color:var(--color-text-muted);margin-top:.25rem">Все заявки от преподавателей</p>
       </div>
-      <h1 style="font-family:var(--font-display);font-size:1.75rem;font-weight:700;color:var(--color-text);margin-bottom:.75rem">Учебный процесс</h1>
-      <p style="font-size:1rem;color:var(--color-text-muted);margin-bottom:.5rem">Тема 6 · В разработке</p>
-      <p style="font-size:.9375rem;color:var(--color-text-faint);margin-bottom:2rem;line-height:1.6">
-        Этот модуль ещё не разработан.<br>
-        Студент: замени <code style="background:var(--color-surface-offset);padding:2px 6px;border-radius:4px;font-size:.875rem">edu/index.php</code> своим кодом.
-      </p>
-      <div style="display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap">
-        <?php if($isAdmin): ?>
-        <a href="../requests/admin_dashboard.php" style="display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.5rem;background:var(--color-primary);color:#fff;border-radius:var(--radius-md);font-weight:500;font-size:.9375rem;text-decoration:none">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          Назад в админку
-        </a>
-        <?php else: ?>
-        <a href="../" style="display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.5rem;background:var(--color-primary);color:#fff;border-radius:var(--radius-md);font-weight:500;font-size:.9375rem;text-decoration:none">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          На главную
-        </a>
-        <?php endif ?>
+      <a href="teacher_dashboard.php" class="btn btn-outline btn-sm">
+        Перейти в модуль заявок
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Всего заявок</div>
+        <div class="kpi-value"><?= $totalRequests ?></div>
+        <div class="kpi-sub"><?= $completedRequests ?> завершено</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ожидают</div>
+        <div class="kpi-value" style="color:var(--color-warning)"><?= $pendingRequests ?></div>
+        <div class="kpi-sub">одобрения</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">В работе</div>
+        <div class="kpi-value" style="color:var(--color-primary)"><?= $inProgressRequests ?></div>
+        <div class="kpi-sub">активных задач</div>
+      </div>
+    </div>
+
+    <!-- Фильтры -->
+    <form method="GET" class="filter-bar">
+      <input type="text" name="search" class="search-input" placeholder="Поиск по имени, кабинету..." value="<?= htmlspecialchars($search) ?>">
+      <select name="status" class="filter-select" onchange="this.form.submit()">
+        <option value="">Все статусы</option>
+        <option value="pending" <?= $status==='pending'?'selected':'' ?>>Ожидает</option>
+        <option value="approved" <?= $status==='approved'?'selected':'' ?>>Одобрена</option>
+        <option value="in_progress" <?= $status==='in_progress'?'selected':'' ?>>В работе</option>
+        <option value="completed" <?= $status==='completed'?'selected':'' ?>>Завершена</option>
+        <option value="rejected" <?= $status==='rejected'?'selected':'' ?>>Отклонена</option>
+      </select>
+      <select name="type" class="filter-select" onchange="this.form.submit()">
+        <option value="">Все типы</option>
+        <option value="repair" <?= $type==='repair'?'selected':'' ?>>Ремонт</option>
+        <option value="software" <?= $type==='software'?'selected':'' ?>>ПО</option>
+        <option value="1c_database" <?= $type==='1c_database'?'selected':'' ?>>1С</option>
+        <option value="general_question" <?= $type==='general_question'?'selected':'' ?>>Вопрос</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Поиск</button>
+      <?php if($status||$type||$search): ?>
+      <a href="admin_requests.php" class="btn btn-outline btn-sm">Сбросить</a>
+      <?php endif ?>
+    </form>
+
+    <!-- Таблица -->
+    <div class="card">
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr><th>ID</th><th>Тип</th><th>Кабинет</th><th>От кого</th><th>Описание</th><th>Статус</th><th>Дата</th></tr>
+          </thead>
+          <tbody>
+            <?php if(empty($allRequests)): ?>
+            <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--color-text-faint)">Заявок не найдено</td></tr>
+            <?php else: foreach($allRequests as $req): ?>
+            <tr>
+              <td style="color:var(--color-text-faint);font-size:.8125rem">#<?= $req['id'] ?></td>
+              <td><?= ['repair'=>'Ремонт','software'=>'ПО','1c_database'=>'1С','general_question'=>'Вопрос'][$req['request_type']]??$req['request_type'] ?></td>
+              <td><?= htmlspecialchars($req['cabinet']) ?></td>
+              <td style="font-size:.875rem"><?= htmlspecialchars($req['creator_name']) ?></td>
+              <td style="font-size:.8125rem;color:var(--color-text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= htmlspecialchars(mb_substr($req['description']??'',0,60)) ?></td>
+              <td><?= statusBadge($req['status']) ?></td>
+              <td style="color:var(--color-text-faint);font-size:.8125rem;white-space:nowrap"><?= date('d.m.Y H:i',strtotime($req['created_at'])) ?></td>
+            </tr>
+            <?php endforeach; endif; ?>
+          </tbody>
+        </table>
       </div>
     </div>
   </main>
