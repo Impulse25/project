@@ -1,7 +1,15 @@
 <?php
 // umr/index.php — Заглушка модуля "УМР" (Тема 4)
-// Студент: замени этот файл своим кодом
 session_start();
+
+// Проверяем роль пользователя из сессии requests
+$userRole = $_SESSION['role'] ?? '';
+$userName = $_SESSION['full_name'] ?? '';
+$isAdmin  = in_array($userRole, ['admin', 'director']);
+$isLoggedIn = isset($_SESSION['user_id']);
+
+$nameParts = explode(' ', trim($userName));
+$initials  = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
 ?>
 <!DOCTYPE html>
 <html lang="ru" data-theme="light">
@@ -695,6 +703,7 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       <span>УМР</span>
     </a>
+
     <div class="nav-section-label" style="margin-top:1rem">Портал</div>
     <a href="../" class="nav-item">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
@@ -704,6 +713,18 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       <span>Заявки в ИТ</span>
     </a>
+
+    <?php if($isAdmin): ?>
+    <div class="nav-section-label" style="margin-top:1rem">Администрирование</div>
+    <a href="../requests/admin_dashboard.php" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span>Дашборд админа</span>
+    </a>
+    <a href="../requests/users.php" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      <span>Пользователи</span>
+    </a>
+    <?php endif ?>
   </nav>
   <div class="sidebar-footer">
     <div class="college-info">
@@ -723,6 +744,16 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
       </div>
     </div>
     <div class="topbar-right">
+      <?php if($isLoggedIn): ?>
+      <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?></div>
+      <?php if($isAdmin): ?>
+      <span style="width:1px;height:20px;background:var(--color-divider)"></span>
+      <a href="../requests/admin_dashboard.php" class="btn btn-outline btn-sm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        В админку
+      </a>
+      <?php endif ?>
+      <?php endif ?>
       <button class="theme-toggle" id="themeToggle">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
@@ -740,10 +771,19 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
         Этот модуль ещё не разработан.<br>
         Студент: замени <code style="background:var(--color-surface-offset);padding:2px 6px;border-radius:4px;font-size:.875rem">umr/index.php</code> своим кодом.
       </p>
-      <a href="../" style="display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.5rem;background:var(--color-primary);color:#fff;border-radius:var(--radius-md);font-weight:500;font-size:.9375rem;text-decoration:none">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        На главную
-      </a>
+      <div style="display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap">
+        <?php if($isAdmin): ?>
+        <a href="../requests/admin_dashboard.php" style="display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.5rem;background:var(--color-primary);color:#fff;border-radius:var(--radius-md);font-weight:500;font-size:.9375rem;text-decoration:none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          Назад в админку
+        </a>
+        <?php else: ?>
+        <a href="../" style="display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.5rem;background:var(--color-primary);color:#fff;border-radius:var(--radius-md);font-weight:500;font-size:.9375rem;text-decoration:none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          На главную
+        </a>
+        <?php endif ?>
+      </div>
     </div>
   </main>
 </div>

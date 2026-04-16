@@ -200,13 +200,13 @@ function logout(PDO $pdo = null): void {
         logLogout($pdo);
     }
     session_destroy();
-    header('Location: /?login=1');
+    header('Location: index.php');
     exit();
 }
 
 function requireLogin(): void {
     if (!isLoggedIn()) {
-        header('Location: /?login=1');
+        header('Location: index.php');
         exit();
     }
 }
@@ -214,29 +214,29 @@ function requireLogin(): void {
 function requireRole(string $role): void {
     requireLogin();
     if (!hasRole($role)) {
-        header('Location: /requests/teacher_dashboard.php');
+        header('Location: teacher_dashboard.php');
         exit();
     }
 }
 
 function redirectToDashboard(): void {
     if (!isLoggedIn()) {
-        header('Location: /?login=1');
+        header('Location: index.php');
         exit();
     }
     switch ($_SESSION['role']) {
         case 'admin':
-            header('Location: /requests/admin_dashboard.php');
+            header('Location: admin_dashboard.php');
             break;
         case 'director':
-            header('Location: /requests/admin_dashboard.php');
+            header('Location: director_dashboard.php');
             break;
         case 'technician':
-            header('Location: /requests/teacher_dashboard.php');
+            header('Location: technician_dashboard.php');
             break;
         case 'teacher':
         default:
-            header('Location: /requests/teacher_dashboard.php');
+            header('Location: teacher_dashboard.php');
             break;
     }
     exit();
