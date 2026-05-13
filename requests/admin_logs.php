@@ -931,8 +931,7 @@ require_once __DIR__ . '/includes/sidebar.php';
                     </table>
                 </div>
             </div>
-        <?php endif; ?>
-        
+
     </div>  </main>
 </div>
 <script>
