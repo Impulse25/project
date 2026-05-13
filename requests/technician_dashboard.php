@@ -1276,9 +1276,14 @@ $currentLang = getCurrentLanguage();
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
-                        
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+        <?php endif; ?>
+
     </div>
-    
+
     <!-- Модальное окно отклонения -->
     <div id="rejectModal">
         <div class="modal-content">
