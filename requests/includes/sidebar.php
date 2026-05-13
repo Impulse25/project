@@ -4,7 +4,7 @@
 
 $activePage = $activePage ?? '';
 $userRole   = $_SESSION['role'] ?? '';
-$isAdmin    = in_array($userRole, ['admin', 'director']);
+$isAdmin    = $userRole === 'admin';
 
 function nav_item(string $href, string $label, string $icon, string $key, string $active, string $badge = ''): string {
     $ac = $active === $key ? ' active' : '';
