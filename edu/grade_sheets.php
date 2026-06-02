@@ -2,26 +2,20 @@
 require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 
-$role    = $_SESSION['role']    ?? 'guest';
-$userId  = (int)($_SESSION['user_id'] ?? 0);
-$isAdmin = $role === 'admin';
+$role    = edu_current_role();
+$userId  = edu_current_user_id();
+$isAdmin = edu_is_admin();
+$isDir   = edu_is_director();
+$isTeacher = edu_is_teacher();
 
-// Доступ: только admin и teacher
-if (!in_array($role, ['admin', 'teacher'])) {
+// Доступ: admin, teacher, director
+if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: index.php');
     exit;
 }
 
 // ── Определяем группы, к которым пользователь имеет доступ ──────────────
-// teacher видит только группы, где он куратор
-// admin видит все группы
-if ($isAdmin) {
-    $myGroups = $pdo->query("SELECT id FROM edu_groups")->fetchAll(PDO::FETCH_COLUMN);
-} else {
-    $myGroups = $pdo->prepare("SELECT id FROM edu_groups WHERE curator_id = ?");
-    $myGroups->execute([$userId]);
-    $myGroups = $myGroups->fetchAll(PDO::FETCH_COLUMN);
-}
+$myGroups = edu_accessible_group_ids($pdo, $userId, $role);
 
 $message     = '';
 $messageType = '';
@@ -45,15 +39,49 @@ if (isset($_GET['status']) && isset($_GET['id'])) {
     $id        = (int)$_GET['id'];
     $newStatus = $_GET['status'];
     $allowed   = ['submitted','approved','rejected','draft'];
-    if (in_array($newStatus, $allowed)) {
-        $row = $pdo->prepare("SELECT * FROM edu_grade_sheets WHERE id = ?");
-        $row->execute([$id]);
-        $row = $row->fetch(PDO::FETCH_ASSOC);
-        $canChange = $isAdmin
-            || ($row && $row['teacher_id'] == $userId && $newStatus === 'submitted' && $row['status'] === 'draft');
-        if ($canChange) {
-            $pdo->prepare("UPDATE edu_grade_sheets SET status=? WHERE id=?")->execute([$newStatus, $id]);
-            $message = 'Статус обновлён.'; $messageType = 'success';
+
+    if (in_array($newStatus, $allowed, true)) {
+        $rowStmt = $pdo->prepare("
+            SELECT gs.teacher_id, gs.status, gs.group_id, g.curator_id
+            FROM edu_grade_sheets gs
+            LEFT JOIN edu_groups g ON g.id = gs.group_id
+            WHERE gs.id = ?
+        " );
+        $rowStmt->execute([$id]);
+        $row = $rowStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            $currentStatus = (string)$row['status'];
+            $isOwnGroupSheet = ((int)$row['teacher_id'] === $userId || in_array((int)$row['group_id'], $myGroups, true));
+
+            $canChange = false;
+            if ($isAdmin) {
+                $canChange = true;
+            } elseif ($isDir && $currentStatus === 'submitted' && in_array($newStatus, ['approved', 'rejected'], true)) {
+                // Директор принимает отправленные на проверку ведомости
+                // или возвращает их преподавателю на доработку.
+                $canChange = true;
+            } elseif ($isDir && $currentStatus === 'approved' && $newStatus === 'rejected') {
+                // Утвержденную ведомость директор также может вернуть
+                // на доработку, чтобы преподаватель внес исправления.
+                $canChange = true;
+            } elseif ($isTeacher && $isOwnGroupSheet && $newStatus === 'submitted' && in_array($currentStatus, ['draft', 'rejected'], true)) {
+                // После возврата на доработку преподаватель снова редактирует
+                // ведомость и повторно отправляет её директору.
+                $canChange = true;
+            }
+
+            if ($canChange) {
+                $pdo->prepare("UPDATE edu_grade_sheets SET status=? WHERE id=?")->execute([$newStatus, $id]);
+                $message = $newStatus === 'approved' ? 'Ведомость утверждена.' : ($newStatus === 'rejected' ? 'Ведомость возвращена на доработку.' : 'Статус обновлён.');
+                $messageType = 'success';
+            } else {
+                $message = 'Нет доступа для смены статуса.';
+                $messageType = 'error';
+            }
+        } else {
+            $message = 'Ведомость не найдена.';
+            $messageType = 'error';
         }
     }
 }
@@ -93,9 +121,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_sheet'])) {
 }
 
 // ── Данные для форм ───────────────────────────────────────────────────────
-if ($isAdmin) {
+if ($isAdmin || $isDir) {
     $groups = $pdo->query("SELECT id, name FROM edu_groups ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
-    $teachers = $pdo->query("SELECT id, username, full_name FROM users WHERE role IN ('teacher','admin') ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
+    $teachers = $isAdmin ? $pdo->query("SELECT id, username, full_name FROM users WHERE role IN ('teacher','admin') ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC) : [];
 } else {
     if ($myGroups) {
         $in = implode(',', array_map('intval', $myGroups));
@@ -110,7 +138,7 @@ $semesters = $pdo->query("SELECT id, year_start, year_end, semester_num FROM edu
 
 // ── Список ведомостей ─────────────────────────────────────────────────────
 $sqlSheets = "
-    SELECT gs.*, g.name AS group_name,
+    SELECT gs.*, g.name AS group_name, g.curator_id,
            sub.name_ru AS subject_name, sub.code AS subject_code,
            sem.year_start, sem.year_end, sem.semester_num,
            u.full_name AS teacher_name, u.username AS teacher_login,
@@ -122,10 +150,10 @@ $sqlSheets = "
     LEFT JOIN edu_semesters   sem ON sem.id = gs.semester_id
     LEFT JOIN users           u   ON u.id   = gs.teacher_id
 ";
-if (!$isAdmin) {
+if ($isTeacher) {
     if ($myGroups) {
         $in = implode(',', array_map('intval', $myGroups));
-        $sqlSheets .= " WHERE gs.group_id IN ($in) AND gs.teacher_id = $userId";
+        $sqlSheets .= " WHERE gs.group_id IN ($in)";
     } else {
         $sqlSheets .= " WHERE 1=0";
     }
@@ -137,6 +165,7 @@ $total  = count($sheets);
 $TYPE_LABELS   = ['exam'=>'Экзамен','credit'=>'Зачёт','coursework'=>'Курсовая','practice'=>'Практика','current'=>'Тек. контроль'];
 $STATUS_LABELS = ['draft'=>'Черновик','submitted'=>'На проверке','approved'=>'Утверждена','rejected'=>'Доработка'];
 $STATUS_BADGE  = ['draft'=>'badge-gray','submitted'=>'badge-amber','approved'=>'badge-green','rejected'=>'badge-red'];
+$canCreateSheet = $isAdmin || $isTeacher;
 
 $pageTitle       = 'Ведомости — СВГТК Портал';
 $activeNav       = 'edu';
@@ -203,13 +232,14 @@ $breadcrumbs     = [
     </div>
     <?php endif ?>
 
-    <?php if (!$isAdmin && empty($myGroups)): ?>
+    <?php if ($isTeacher && empty($myGroups)): ?>
     <div class="no-groups-warn">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       Вы не назначены куратором ни одной группы. Обратитесь к администратору.
     </div>
     <?php else: ?>
 
+    <?php if ($canCreateSheet): ?>
     <!-- Форма создания -->
     <div class="card">
       <div class="card-header">
@@ -280,6 +310,7 @@ $breadcrumbs     = [
       </div>
     </div>
     <?php endif ?>
+    <?php endif ?>
 
     <!-- Список ведомостей -->
     <div class="card">
@@ -297,14 +328,15 @@ $breadcrumbs     = [
             <tr>
               <th>#</th><th>Группа</th><th>Дисциплина</th><th>Семестр</th>
               <th>Тип</th><th>Прогресс</th><th>Статус</th>
-              <?php if ($isAdmin): ?><th>Преподаватель</th><?php endif ?>
+              <?php if ($isAdmin || $isDir): ?><th>Преподаватель</th><?php endif ?>
               <th>Действия</th>
             </tr>
           </thead>
           <tbody>
             <?php foreach ($sheets as $i => $sh):
               $pct = $sh['student_count'] > 0 ? round($sh['graded_count'] / $sh['student_count'] * 100) : 0;
-              $canEdit = $isAdmin || ($sh['teacher_id'] == $userId && $sh['status'] === 'draft');
+              $isOwnGroupSheet = ((int)$sh['teacher_id'] === $userId || in_array((int)$sh['group_id'], $myGroups, true));
+              $canEdit = $isAdmin || ($isTeacher && $isOwnGroupSheet && in_array($sh['status'], ['draft', 'rejected'], true));
             ?>
             <tr>
               <td style="color:var(--color-text-muted)"><?= $i+1 ?></td>
@@ -320,7 +352,7 @@ $breadcrumbs     = [
                 <span class="progress-bar-wrap"><span class="progress-bar-fill" style="width:<?= $pct ?>%"></span></span>
               </td>
               <td><span class="badge <?= $STATUS_BADGE[$sh['status']] ?? 'badge-gray' ?>"><?= $STATUS_LABELS[$sh['status']] ?? $sh['status'] ?></span></td>
-              <?php if ($isAdmin): ?>
+              <?php if ($isAdmin || $isDir): ?>
               <td style="font-size:.875rem;color:var(--color-text-muted)"><?= htmlspecialchars($sh['teacher_name'] ?: $sh['teacher_login']) ?></td>
               <?php endif ?>
               <td>
@@ -337,7 +369,7 @@ $breadcrumbs     = [
                   <a href="grades.php?sheet_id=<?= $sh['id'] ?>" class="btn btn-outline" style="padding:.3rem .7rem;font-size:.8125rem">Просмотр</a>
                   <?php endif ?>
 
-                  <?php if ($sh['status'] === 'draft' && $sh['teacher_id'] == $userId): ?>
+                  <?php if ($isTeacher && in_array($sh['status'], ['draft', 'rejected'], true) && $isOwnGroupSheet): ?>
                   <a href="grade_sheets.php?id=<?= $sh['id'] ?>&status=submitted"
                      class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
                      title="Сдать на проверку"
@@ -346,11 +378,21 @@ $breadcrumbs     = [
                   </a>
                   <?php endif ?>
 
-                  <?php if ($isAdmin): ?>
-                  <?php if ($sh['status'] === 'submitted'): ?>
-                  <a href="grade_sheets.php?id=<?= $sh['id'] ?>&status=approved" class="btn btn-success" style="padding:.3rem .6rem;font-size:.8125rem" title="Утвердить">✓</a>
-                  <a href="grade_sheets.php?id=<?= $sh['id'] ?>&status=rejected" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem" title="Вернуть">↩</a>
+                  <?php if (($isAdmin || $isDir) && $sh['status'] === 'submitted'): ?>
+                  <a href="grade_sheets.php?id=<?= $sh['id'] ?>&status=approved"
+                     class="btn btn-success" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Принять ведомость"
+                     onclick="return confirm('Принять и утвердить ведомость?')">✓</a>
                   <?php endif ?>
+
+                  <?php if (($isAdmin || $isDir) && in_array($sh['status'], ['submitted', 'approved'], true)): ?>
+                  <a href="grade_sheets.php?id=<?= $sh['id'] ?>&status=rejected"
+                     class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Отправить на доработку"
+                     onclick="return confirm('Отправить ведомость преподавателю на доработку?')">↩</a>
+                  <?php endif ?>
+
+                  <?php if ($isAdmin): ?>
                   <a href="grade_sheets.php?delete=<?= $sh['id'] ?>"
                      class="btn btn-danger" style="padding:.3rem .6rem;font-size:.8125rem"
                      onclick="return confirm('Удалить ведомость?')">

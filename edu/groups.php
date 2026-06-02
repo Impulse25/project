@@ -28,6 +28,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $specialty_id = (int)($_POST['specialty_id'] ?? 0);
     $course       = (int)($_POST['course']       ?? 0);
     $curator_id   = trim($_POST['curator_id']    ?? '') !== '' ? (int)$_POST['curator_id'] : null;
+    $curator_name = trim($_POST['curator_name'] ?? '');
+    if ($curator_id === null && $curator_name !== '') {
+        $curatorStmt = $pdo->prepare("
+            SELECT id
+            FROM users
+            WHERE role IN ('teacher', '3')
+              AND (full_name LIKE ? OR username LIKE ?)
+            ORDER BY
+                CASE
+                    WHEN full_name = ? THEN 0
+                    WHEN username = ? THEN 1
+                    ELSE 2
+                END,
+                COALESCE(NULLIF(full_name, ''), username)
+            LIMIT 1
+        ");
+        $curatorStmt->execute([
+            '%' . $curator_name . '%',
+            '%' . $curator_name . '%',
+            $curator_name,
+            $curator_name,
+        ]);
+        $foundCuratorId = $curatorStmt->fetchColumn();
+        $curator_id = $foundCuratorId ? (int)$foundCuratorId : null;
+    }
     $year_started = (int)($_POST['year_started'] ?? 0);
 
     if ($name === '' || $specialty_id === 0 || $course < 1 || $course > 4 || $year_started < 2000) {
@@ -56,7 +81,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Режим редактирования
 $editRow = null;
 if (isset($_GET['edit'])) {
-    $stmt = $pdo->prepare("SELECT * FROM edu_groups WHERE id = ?");
+    $stmt = $pdo->prepare("
+        SELECT g.*, COALESCE(NULLIF(u.full_name, ''), u.username) AS curator_name
+        FROM edu_groups g
+        LEFT JOIN users u ON u.id = g.curator_id
+        WHERE g.id = ?
+    ");
     $stmt->execute([(int)$_GET['edit']]);
     $editRow = $stmt->fetch(PDO::FETCH_ASSOC);
 }
@@ -66,9 +96,12 @@ $specialties = $pdo->query("SELECT id, code, name_ru FROM edu_specialties ORDER 
 
 // Список групп с JOIN
 $rows  = $pdo->query("
-    SELECT g.*, sp.name_ru AS specialty_name, sp.code AS specialty_code
+    SELECT g.*, sp.name_ru AS specialty_name, sp.code AS specialty_code,
+           COALESCE(NULLIF(u.full_name, ''), u.username) AS curator_name,
+           u.username AS curator_username
     FROM edu_groups g
     LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id
+    LEFT JOIN users u ON u.id = g.curator_id
     ORDER BY g.name
 ")->fetchAll(PDO::FETCH_ASSOC);
 $total = count($rows);
@@ -103,6 +136,31 @@ $breadcrumbs     = [
     .empty-state-title { font-weight:600; font-size:1.125rem; color:var(--color-text); margin-bottom:.5rem; }
     .empty-state-sub { font-size:.9375rem; color:var(--color-text-muted); }
     .action-btns { display:flex; gap:.5rem; }
+    .curator-picker { position:relative; }
+    .group-form-card { overflow:visible; position:relative; z-index:30; }
+    .group-form-card .card-body { overflow:visible; }
+    .curator-picker { position:relative; min-width:0; }
+    .curator-results {
+      position:absolute;
+      z-index:1000;
+      top:calc(100% + .25rem);
+      left:0;
+      right:0;
+      max-height:180px;
+      overflow-y:auto;
+      background:var(--color-surface);
+      border:1px solid var(--color-border);
+      border-radius:var(--radius-md);
+      box-shadow:var(--shadow-lg);
+      display:none;
+    }
+    .curator-results.open { display:block; }
+    .curator-option { padding:.55rem .75rem; cursor:pointer; border-bottom:1px solid var(--color-divider); }
+    .curator-option:last-child { border-bottom:none; }
+    .curator-option:hover { background:var(--color-primary-highlight); }
+    .curator-option-title { font-size:.9rem; font-weight:500; line-height:1.25; color:var(--color-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .curator-option-sub { font-size:.75rem; color:var(--color-text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .curator-option-empty { color:var(--color-text-muted); cursor:default; }
   </style>
 </head>
 <body>
@@ -136,7 +194,7 @@ $breadcrumbs     = [
     <?php endif ?>
 
     <!-- Форма -->
-    <div class="card">
+    <div class="card group-form-card">
       <div class="card-header">
         <span class="card-title">
           <?php if ($editRow): ?>
@@ -189,11 +247,13 @@ $breadcrumbs     = [
                      placeholder="<?= date('Y') ?>"
                      value="<?= htmlspecialchars($editRow['year_started'] ?? date('Y')) ?>">
             </div>
-            <div class="form-group">
-              <label for="f_curator">ID куратора</label>
-              <input type="number" id="f_curator" name="curator_id" min="1"
-                     placeholder="ID пользователя"
-                     value="<?= htmlspecialchars($editRow['curator_id'] ?? '') ?>">
+            <div class="form-group curator-picker">
+              <label for="f_curator_name">Куратор</label>
+              <input type="hidden" id="f_curator" name="curator_id" value="<?= htmlspecialchars($editRow['curator_id'] ?? '') ?>">
+              <input type="text" id="f_curator_name" name="curator_name" autocomplete="off"
+                     placeholder="Начните вводить ФИО куратора"
+                     value="<?= htmlspecialchars($editRow['curator_name'] ?? '') ?>">
+              <div class="curator-results" id="curatorResults"></div>
             </div>
           </div>
           <div style="margin-top:1.25rem">
@@ -221,7 +281,7 @@ $breadcrumbs     = [
           <thead>
             <tr>
               <th>#</th><th>Название</th><th>Специальность</th><th>Курс</th>
-              <th>Год набора</th><th>ID куратора</th><th style="text-align:right">Действия</th>
+              <th>Год набора</th><th>Куратор</th><th style="text-align:right">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -235,9 +295,10 @@ $breadcrumbs     = [
               </td>
               <td><span class="badge badge-blue"><?= $r['course'] ?> курс</span></td>
               <td><?= htmlspecialchars($r['year_started']) ?></td>
-              <td style="font-family:monospace;color:var(--color-text-muted)"><?= $r['curator_id'] ?? '—' ?></td>
+              <td style="color:var(--color-text-muted)"><?= htmlspecialchars($r['curator_name'] ?? ($r['curator_id'] ? 'ID ' . $r['curator_id'] : '—')) ?></td>
               <td>
                 <div class="action-btns" style="justify-content:flex-end">
+                  <a href="export_op_pvt.php?group_id=<?= $r['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem" title="Экспорт ОП">ОП</a>
                   <a href="groups.php?edit=<?= $r['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </a>
@@ -267,5 +328,56 @@ $breadcrumbs     = [
   </main>
 </div>
 <script src="assets/app.js"></script>
+
+<script>
+const curatorInput = document.getElementById('f_curator_name');
+const curatorIdInput = document.getElementById('f_curator');
+const curatorResults = document.getElementById('curatorResults');
+let curatorTimer = null;
+
+async function loadCurators(q = '') {
+  if (!curatorInput || !curatorResults) return;
+  const response = await fetch('curator_search.php?q=' + encodeURIComponent(q), {headers: {'Accept': 'application/json'}});
+  if (!response.ok) return;
+  const items = await response.json();
+  curatorResults.innerHTML = '';
+  if (!items.length) {
+    curatorResults.innerHTML = '<div class="curator-option curator-option-empty"><div class="curator-option-title">Совпадений нет</div></div>';
+  } else {
+    items.forEach(item => {
+      const title = item.display_name || item.full_name || item.username || ('ID ' + item.id);
+      const metaParts = [];
+      if (item.username && item.username !== title) metaParts.push(item.username);
+      metaParts.push('ID ' + item.id);
+
+      const el = document.createElement('div');
+      el.className = 'curator-option';
+      el.innerHTML = `<div class="curator-option-title"></div><div class="curator-option-sub"></div>`;
+      el.querySelector('.curator-option-title').textContent = title;
+      el.querySelector('.curator-option-sub').textContent = metaParts.join(' · ');
+      el.addEventListener('mousedown', e => {
+        e.preventDefault();
+        curatorIdInput.value = item.id;
+        curatorInput.value = title;
+        curatorResults.classList.remove('open');
+      });
+      curatorResults.appendChild(el);
+    });
+  }
+  curatorResults.classList.add('open');
+}
+
+if (curatorInput) {
+  curatorInput.addEventListener('focus', () => loadCurators(curatorInput.value.trim()));
+  curatorInput.addEventListener('input', () => {
+    curatorIdInput.value = '';
+    clearTimeout(curatorTimer);
+    curatorTimer = setTimeout(() => loadCurators(curatorInput.value.trim()), 180);
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.curator-picker')) curatorResults.classList.remove('open');
+  });
+}
+</script>
 </body>
 </html>

@@ -3,11 +3,13 @@ require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/includes/export_helpers.php';
 
-$role    = $_SESSION['role']    ?? 'guest';
-$userId  = (int)($_SESSION['user_id'] ?? 0);
-$isAdmin = $role === 'admin';
+$role    = edu_current_role();
+$userId  = edu_current_user_id();
+$isAdmin = edu_is_admin();
+$isDir   = edu_is_director();
+$isTeacher = edu_is_teacher();
 
-if (!in_array($role, ['admin', 'teacher'])) {
+if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: index.php');
     exit;
 }
@@ -33,15 +35,17 @@ $stmt->execute([$sheetId]);
 $sheet = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$sheet) { header('Location: grade_sheets.php'); exit; }
 
-// Проверка доступа: admin или куратор этой группы
-$isCurator = ($sheet['curator_id'] == $userId || $sheet['teacher_id'] == $userId);
-if (!$isAdmin && !$isCurator) {
+$accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
+// Проверка доступа: admin/director или доступная группа преподавателя
+$isCurator = ((int)$sheet['teacher_id'] === $userId || in_array((int)$sheet['group_id'], $accessibleGroupIds, true));
+if (!$isAdmin && !$isDir && !$isCurator) {
     header('Location: grade_sheets.php');
     exit;
 }
 
 // Можно редактировать только если draft и мы куратор/владелец или admin
-$canEdit = $sheet['status'] === 'draft' && ($isAdmin || $isCurator);
+$canEdit = in_array($sheet['status'], ['draft', 'rejected'], true) && ($isAdmin || ($isTeacher && $isCurator));
+$canReview = ($isAdmin || $isDir) && in_array($sheet['status'], ['submitted', 'approved'], true);
 
 $message = ''; $messageType = '';
 
@@ -102,7 +106,7 @@ $students = $studentRows->fetchAll(PDO::FETCH_ASSOC);
 // Статистика
 $graded  = array_filter($students, fn($s) => $s['grade'] !== null);
 $absent  = array_filter($students, fn($s) => $s['absent']);
-$avg     = count($graded) ? round(array_sum(array_column(iterator_to_array((function() use($graded){foreach($graded as $g) yield $g;})(), false), 'grade')) / count($graded), 2) : null;
+$avg     = count($graded) ? round(array_sum(array_map(fn($g) => (int)$g['grade'], $graded)) / count($graded), 2) : null;
 $total   = count($students);
 
 $TYPE_LABELS   = ['exam'=>'Экзамен','credit'=>'Зачёт','coursework'=>'Курсовая','practice'=>'Практика','current'=>'Тек. контроль'];
@@ -173,6 +177,20 @@ $breadcrumbs = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Экспорт ведомости
         </a>
+        <?php if ($canReview && $sheet['status'] === 'submitted'): ?>
+        <a href="grade_sheets.php?id=<?= $sheetId ?>&status=approved"
+           class="btn btn-success"
+           onclick="return confirm('Принять и утвердить ведомость?')">
+          Принять
+        </a>
+        <?php endif ?>
+        <?php if ($canReview): ?>
+        <a href="grade_sheets.php?id=<?= $sheetId ?>&status=rejected"
+           class="btn btn-outline"
+           onclick="return confirm('Отправить ведомость преподавателю на доработку?')">
+          На доработку
+        </a>
+        <?php endif ?>
         <button class="btn btn-outline" onclick="window.print()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Печать
@@ -303,7 +321,7 @@ $breadcrumbs = [
         <?php elseif ($sheet['status'] !== 'draft'): ?>
         <div style="padding:1rem 1.5rem;border-top:1px solid var(--color-divider);color:var(--color-text-muted);font-size:.875rem">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          Ведомость заблокирована (статус: <?= $STATUS_LABELS[$sheet['status']] ?>). Только администратор может вернуть её на доработку.
+          Ведомость заблокирована (статус: <?= $STATUS_LABELS[$sheet['status']] ?>). Директор или администратор может вернуть ведомость на доработку. Если ведомость находится на проверке, её также можно принять.
         </div>
         <?php endif ?>
       </form>

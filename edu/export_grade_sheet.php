@@ -3,11 +3,13 @@ require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/includes/export_helpers.php';
 
-$role   = $_SESSION['role'] ?? 'guest';
-$userId = (int)($_SESSION['user_id'] ?? 0);
-$isAdmin = $role === 'admin';
+$role   = edu_current_role();
+$userId = edu_current_user_id();
+$isAdmin = edu_is_admin();
+$isDir = edu_is_director();
+$isTeacher = edu_is_teacher();
 
-if (!in_array($role, ['admin', 'teacher'], true)) {
+if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: grade_sheets.php');
     exit;
 }
@@ -20,8 +22,9 @@ $stmt->execute([$sheetId]);
 $sheet = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$sheet) { header('Location: grade_sheets.php'); exit; }
 
-$isCurator = ($sheet['curator_id'] == $userId || $sheet['teacher_id'] == $userId);
-if (!$isAdmin && !$isCurator) {
+$accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
+$isCurator = ((int)$sheet['teacher_id'] === $userId || in_array((int)$sheet['group_id'], $accessibleGroupIds, true));
+if (!$isAdmin && !$isDir && !$isCurator) {
     header('Location: grade_sheets.php');
     exit;
 }

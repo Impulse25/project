@@ -11,9 +11,11 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
-$role = $_SESSION['role'] ?? 'guest';
-$userId = (int)($_SESSION['user_id'] ?? 0);
-$isAdmin = $role === 'admin';
+$role = edu_current_role();
+$userId = edu_current_user_id();
+$isAdmin = edu_is_admin();
+$isDir = edu_is_director();
+$isTeacher = edu_is_teacher();
 if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: grade_sheets.php');
     exit;
@@ -27,7 +29,7 @@ $groupStmt = $pdo->prepare("\n    SELECT g.*, sp.code AS specialty_code, sp.name
 $groupStmt->execute([$groupId]);
 $group = $groupStmt->fetch(PDO::FETCH_ASSOC);
 if (!$group) { header('Location: grade_sheets.php'); exit; }
-if (!$isAdmin && $role === 'teacher' && (int)$group['curator_id'] !== $userId) {
+if (!$isAdmin && !$isDir && !edu_user_can_access_group($pdo, $groupId, $userId, $role)) {
     header('Location: grade_sheets.php');
     exit;
 }

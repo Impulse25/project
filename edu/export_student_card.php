@@ -3,7 +3,11 @@ require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/includes/export_helpers.php';
 
-$role = $_SESSION['role'] ?? 'guest';
+$role = edu_current_role();
+$userId = edu_current_user_id();
+$isAdmin = edu_is_admin();
+$isDir = edu_is_director();
+$isTeacher = edu_is_teacher();
 if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: index.php');
     exit;
@@ -12,10 +16,15 @@ if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
 $studentId = (int)($_GET['student_id'] ?? $_GET['id'] ?? 0);
 if (!$studentId) { header('Location: index.php'); exit; }
 
-$stmt = $pdo->prepare("\n    SELECT s.*, g.name AS group_name, g.course, g.year_started,\n           sp.code AS specialty_code, sp.name_ru AS specialty_name, sp.qualification,\n           sc.notes\n    FROM edu_students s\n    LEFT JOIN edu_groups g ON g.id = s.group_id\n    LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)\n    LEFT JOIN edu_student_cards sc ON sc.student_id = s.id\n    WHERE s.id = ?\n");
+$stmt = $pdo->prepare("\n    SELECT s.*, g.name AS group_name, g.course, g.year_started, g.curator_id,\n           sp.code AS specialty_code, sp.name_ru AS specialty_name, sp.qualification,\n           sc.notes\n    FROM edu_students s\n    LEFT JOIN edu_groups g ON g.id = s.group_id\n    LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)\n    LEFT JOIN edu_student_cards sc ON sc.student_id = s.id\n    WHERE s.id = ?\n");
 $stmt->execute([$studentId]);
 $student = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$student) { header('Location: index.php'); exit; }
+$accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
+if (!$isAdmin && !$isDir && !($isTeacher && in_array((int)($student['group_id'] ?? 0), $accessibleGroupIds, true))) {
+    header('Location: index.php');
+    exit;
+}
 
 $grades = edu_fetch_student_grades($pdo, $studentId, false);
 $semesters = [];

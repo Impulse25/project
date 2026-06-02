@@ -2,15 +2,38 @@
 require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 
-$role      = $_SESSION['role']    ?? 'guest';
-$userId    = $_SESSION['user_id'] ?? 0;
-$isAdmin   = $role === 'admin';
-$isTeacher = $role === 'teacher';
-$canEdit   = $isAdmin || $isTeacher;
+$role      = edu_current_role();
+$userId    = edu_current_user_id();
+$isAdmin   = edu_is_admin();
+$isDirector = edu_is_director();
+$isTeacher = edu_is_teacher();
+$canEdit   = false;
 
 // ── Получаем student_id из POST или GET ────────────────────────────────────
 $studentId = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
 if (!$studentId) {
+    header('Location: index.php');
+    exit;
+}
+
+$accessStmt = $pdo->prepare("
+    SELECT s.group_id, g.curator_id
+    FROM edu_students s
+    LEFT JOIN edu_groups g ON g.id = s.group_id
+    WHERE s.id = ?
+");
+$accessStmt->execute([$studentId]);
+$accessRow = $accessStmt->fetch(PDO::FETCH_ASSOC);
+if (!$accessRow) {
+    header('Location: index.php');
+    exit;
+}
+
+$accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
+$teacherOwnsStudent = $isTeacher && in_array((int)($accessRow['group_id'] ?? 0), $accessibleGroupIds, true);
+$canView = $isAdmin || $isDirector || $teacherOwnsStudent;
+$canEdit = $isAdmin || $teacherOwnsStudent;
+if (!$canView) {
     header('Location: index.php');
     exit;
 }
@@ -30,6 +53,15 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
     $citizenship  = trim($_POST['citizenship']  ?? '');
     $nationality  = trim($_POST['nationality']  ?? '');
     $notes        = trim($_POST['notes']        ?? '');
+    $groupAccessDenied = false;
+
+    if ($isTeacher && $group_id !== null) {
+        if (!in_array($group_id, $accessibleGroupIds, true)) {
+            $message = 'Нет доступа к выбранной группе.';
+            $messageType = 'error';
+            $groupAccessDenied = true;
+        }
+    }
 
     // Загрузка фото
     $photoPath = null;
@@ -46,6 +78,7 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
         }
     }
 
+    if (!$groupAccessDenied) {
     try {
         // Обновляем edu_students
         $pdo->prepare("
@@ -78,12 +111,14 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
         $message     = 'Ошибка сохранения: ' . $e->getMessage();
         $messageType = 'error';
     }
+    }
 }
 
 // ── Загружаем данные из БД ─────────────────────────────────────────────────
 $stmt = $pdo->prepare("
     SELECT s.*,
            g.name        AS group_name,
+           g.curator_id  AS curator_id,
            sp.name_ru    AS specialty_name,
            sc.photo_path AS card_photo,
            sc.notes      AS card_notes
@@ -102,9 +137,15 @@ if (!$s) {
 }
 
 // Все группы и специальности для формы редактирования
-$allGroups = $canEdit
-    ? $pdo->query("SELECT id, name FROM edu_groups ORDER BY name")->fetchAll(PDO::FETCH_ASSOC)
-    : [];
+if ($canEdit && $isAdmin) {
+    $allGroups = $pdo->query("SELECT id, name FROM edu_groups ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+} elseif ($canEdit && $isTeacher) {
+    $allGroups = $accessibleGroupIds
+        ? $pdo->query("SELECT id, name FROM edu_groups WHERE id IN (" . edu_in_int_list($accessibleGroupIds) . ") ORDER BY name")->fetchAll(PDO::FETCH_ASSOC)
+        : [];
+} else {
+    $allGroups = [];
+}
 $allSpecialties = $canEdit
     ? $pdo->query("SELECT id, name_ru FROM edu_specialties ORDER BY name_ru")->fetchAll(PDO::FETCH_ASSOC)
     : [];

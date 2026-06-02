@@ -8,14 +8,17 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 // ── Роль текущего пользователя ─────────────────────────────────────────────
-$role      = $_SESSION['role'] ?? 'guest';   // admin | director | teacher | guest
-$userId    = $_SESSION['user_id'] ?? 0;
-$isAdmin   = $role === 'admin';
-$isDir     = $role === 'director';
-$isTeacher = $role === 'teacher';
+$role      = edu_current_role();   // admin | director | teacher
+$userId    = edu_current_user_id();
+$isAdmin   = edu_is_admin();
+$isDir     = edu_is_director();
+$isTeacher = edu_is_teacher();
 
 $message     = '';
 $messageType = '';
+
+$filterGroup = (isset($_GET['group_id']) && $_GET['group_id'] !== '') ? (int)$_GET['group_id'] : null;
+$accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
 
 // ── Загрузка Excel (только admin) ─────────────────────────────────────────
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
@@ -169,15 +172,29 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_fi
     }
 }
 
-// ── Экспорт Excel (только admin) ──────────────────────────────────────────
-if ($isAdmin && isset($_GET['export']) && $_GET['export'] === '1') {
+// ── Экспорт Excel (admin/director/teacher с учетом доступа) ────────────────
+if (($isAdmin || $isDir || $isTeacher) && isset($_GET['export']) && $_GET['export'] === '1') {
 
     // Очищаем буфер, чтобы Excel-файл не ломался из-за лишнего вывода
     if (ob_get_length()) {
         ob_end_clean();
     }
 
-    $rows = $pdo->query("
+    $where = [];
+    $exportParams = [];
+    if ($isTeacher) {
+        $teacherGroupIds = $accessibleGroupIds;
+        if ($filterGroup && in_array($filterGroup, $teacherGroupIds, true)) {
+            $teacherGroupIds = [$filterGroup];
+        }
+        $where[] = $teacherGroupIds ? 's.group_id IN (' . edu_in_int_list($teacherGroupIds) . ')' : '1=0';
+    } elseif ($filterGroup) {
+        $where[] = 's.group_id = :gid';
+        $exportParams[':gid'] = $filterGroup;
+    } elseif (!$isAdmin && !$isDir) {
+        $where[] = '1=0';
+    }
+    $exportSql = "
         SELECT
                s.surname,
                s.name,
@@ -191,8 +208,12 @@ if ($isAdmin && isset($_GET['export']) && $_GET['export'] === '1') {
         FROM edu_students s
         LEFT JOIN edu_groups g ON g.id = s.group_id
         LEFT JOIN edu_specialties sp ON sp.id = s.speciality_id
-        ORDER BY s.surname, s.name
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    ";
+    if ($where) $exportSql .= ' WHERE ' . implode(' AND ', $where);
+    $exportSql .= " ORDER BY s.surname, s.name";
+    $exportStmt = $pdo->prepare($exportSql);
+    $exportStmt->execute($exportParams);
+    $rows = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $spreadsheet = new Spreadsheet();
     $sheet       = $spreadsheet->getActiveSheet();
@@ -257,13 +278,44 @@ if ($isAdmin && isset($_GET['export']) && $_GET['export'] === '1') {
     exit;
 }
 
-// ── Список групп для фильтра (admin + director) ───────────────────────────
+// ── Удаление студента (только admin) ─────────────────────────────────────
+if ($isAdmin && isset($_GET['delete_student'])) {
+    $deleteStudentId = (int)$_GET['delete_student'];
+    if ($deleteStudentId > 0) {
+        try {
+            $pdo->beginTransaction();
+            $cardStmt = $pdo->prepare("SELECT photo_path FROM edu_student_cards WHERE student_id = ?");
+            $cardStmt->execute([$deleteStudentId]);
+            $photoPaths = $cardStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $pdo->prepare("DELETE FROM edu_student_cards WHERE student_id = ?")->execute([$deleteStudentId]);
+            $pdo->prepare("DELETE FROM edu_students WHERE id = ?")->execute([$deleteStudentId]);
+            $pdo->commit();
+
+            foreach ($photoPaths as $photoPath) {
+                $fullPath = __DIR__ . '/' . ltrim((string)$photoPath, '/');
+                if ($photoPath && is_file($fullPath) && strpos(realpath($fullPath) ?: '', realpath(__DIR__ . '/uploads/students') ?: '') === 0) {
+                    @unlink($fullPath);
+                }
+            }
+
+            $message = 'Студент и связанная личная карточка удалены.';
+            $messageType = 'success';
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $message = 'Ошибка удаления студента: ' . $e->getMessage();
+            $messageType = 'error';
+        }
+    }
+}
+
+// ── Список групп для фильтра ─────────────────────────────────────────────
 $allGroups = [];
 if ($isAdmin || $isDir) {
     $allGroups = $pdo->query("SELECT id, name FROM edu_groups ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+} elseif ($isTeacher && $accessibleGroupIds) {
+    $allGroups = $pdo->query("SELECT id, name FROM edu_groups WHERE id IN (" . edu_in_int_list($accessibleGroupIds) . ") ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 }
-$filterGroup = (isset($_GET['group_id']) && $_GET['group_id'] !== '') ? (int)$_GET['group_id'] : null;
-
 // ── Выборка студентов из БД ───────────────────────────────────────────────
 $sql    = "
     SELECT s.id, s.surname, s.name, s.patronymic,
@@ -278,12 +330,17 @@ $sql    = "
 $params = [];
 
 if ($isTeacher) {
-    // Только студенты групп, где куратором является текущий пользователь
-    $sql   .= " WHERE g.curator_id = :uid";
-    $params[':uid'] = $userId;
+    // Только студенты доступных групп преподавателя.
+    $teacherGroupIds = $accessibleGroupIds;
+    if ($filterGroup && in_array($filterGroup, $teacherGroupIds, true)) {
+        $teacherGroupIds = [$filterGroup];
+    }
+    $sql .= $teacherGroupIds ? " WHERE s.group_id IN (" . edu_in_int_list($teacherGroupIds) . ")" : " WHERE 1=0";
 } elseif ($filterGroup) {
     $sql   .= " WHERE s.group_id = :gid";
     $params[':gid'] = $filterGroup;
+} elseif (!$isAdmin && !$isDir) {
+    $sql .= " WHERE 1=0";
 }
 $sql .= " ORDER BY s.surname, s.name";
 
@@ -339,6 +396,10 @@ $breadcrumbs     = [
     .filter-bar label { font-size: 0.875rem; font-weight: 500; color: var(--color-text-muted); white-space: nowrap; }
     .filter-bar select { font-size: 0.875rem; padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
     .refs-nav { display: flex; gap: 0.625rem; flex-wrap: wrap; }
+    .table-search { display:flex; align-items:center; gap:.75rem; padding:.875rem 1.5rem; border-bottom:1px solid var(--color-divider); background:var(--color-surface); }
+    .table-search input { width:min(420px,100%); padding:.5rem .75rem; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); color:var(--color-text); }
+    .table-search input:focus { outline:none; border-color:var(--color-primary); }
+    .row-actions { display:flex; gap:.375rem; flex-wrap:wrap; }
   </style>
 </head>
 <body>
@@ -363,14 +424,16 @@ $breadcrumbs     = [
           <a href="subjects.php"      class="btn btn-outline">Дисциплины</a>
           <a href="semesters.php"     class="btn btn-outline">Семестры</a>
           <a href="import_logs.php"   class="btn btn-outline">История импортов</a>
-          <a href="grade_sheets.php"   class="btn btn-outline">Ведомости</a>
+          <a href="grade_sheets.php"  class="btn btn-outline">Ведомости</a>
         </div>
-        <?php if ($total > 0): ?>
+        <?php elseif ($isDir || $isTeacher): ?>
+        <a href="grade_sheets.php" class="btn btn-outline">Ведомости</a>
+        <?php endif ?>
+        <?php if (($isAdmin || $isDir || $isTeacher) && $total > 0): ?>
         <a href="index.php?export=1<?= $filterGroup ? '&group_id='.$filterGroup : '' ?>" class="btn btn-success">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Экспорт Excel
         </a>
-        <?php endif ?>
         <?php endif ?>
       </div>
     </div>
@@ -432,7 +495,7 @@ $breadcrumbs     = [
         <?php endif ?>
       </div>
 
-      <?php if ($isAdmin || $isDir): ?>
+      <?php if ($isAdmin || $isDir || ($isTeacher && $allGroups)): ?>
       <!-- Фильтр по группе -->
       <form method="GET" action="index.php" class="filter-bar">
         <label for="group_filter">
@@ -460,18 +523,23 @@ $breadcrumbs     = [
         <div class="stat-item"><span class="stat-value"><?= $citizens ?></span><span class="stat-label">Гражданств</span></div>
       </div>
 
+      <div class="table-search">
+        <label for="tableSearch" style="font-size:.875rem;font-weight:500;color:var(--color-text-muted)">Поиск по таблице:</label>
+        <input type="search" id="tableSearch" placeholder="ФИО, ИИН, группа, специальность…" autocomplete="off">
+      </div>
+
       <div class="table-wrapper">
         <table class="data-table">
           <thead>
             <tr>
               <th>#</th><th>ID</th><th>Фамилия</th><th>Имя</th><th>Отчество</th>
               <th>Дата рождения</th><th>Группа</th><th>Специальность</th>
-              <th>ИИН</th><th>Гражданство</th><th>Национальность</th>
+              <th>ИИН</th><th>Гражданство</th><th>Национальность</th><?php if ($isAdmin): ?><th>Действия</th><?php endif ?>
             </tr>
           </thead>
           <tbody id="tableBody">
             <?php foreach (array_slice($students, 0, 25) as $i => $s): ?>
-            <tr class="student-row" data-index="<?= $i ?>" onclick="openStudent(<?= $i ?>)">
+            <tr class="student-row" onclick="location.href='about_student.php?id=<?= (int)$s['id'] ?>'">
               <td style="color:var(--color-text-muted)"><?= $i + 1 ?></td>
               <td style="font-variant-numeric:tabular-nums;color:var(--color-text-muted)"><?= htmlspecialchars($s['id']) ?></td>
               <td style="font-weight:600"><?= htmlspecialchars($s['surname']) ?></td>
@@ -483,13 +551,22 @@ $breadcrumbs     = [
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
+              <?php if ($isAdmin): ?>
+              <td onclick="event.stopPropagation()">
+                <div class="row-actions">
+                  <a href="index.php?delete_student=<?= (int)$s['id'] ?><?= $filterGroup ? '&group_id=' . (int)$filterGroup : '' ?>"
+                     class="btn btn-danger" style="padding:.3rem .65rem;font-size:.8125rem"
+                     onclick="return confirm('Удалить студента и связанную личную карточку?')">Удалить</a>
+                </div>
+              </td>
+              <?php endif ?>
             </tr>
             <?php endforeach ?>
           </tbody>
           <?php if ($total > 25): ?>
           <tbody id="hiddenRows" style="display:none">
             <?php foreach (array_slice($students, 25) as $i => $s): $real = $i + 25; ?>
-            <tr class="student-row" onclick="openStudent(<?= $real ?>)">
+            <tr class="student-row" onclick="location.href='about_student.php?id=<?= (int)$s['id'] ?>'">
               <td style="color:var(--color-text-muted)"><?= $real + 1 ?></td>
               <td style="font-variant-numeric:tabular-nums;color:var(--color-text-muted)"><?= htmlspecialchars($s['id']) ?></td>
               <td style="font-weight:600"><?= htmlspecialchars($s['surname']) ?></td>
@@ -501,6 +578,15 @@ $breadcrumbs     = [
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
+              <?php if ($isAdmin): ?>
+              <td onclick="event.stopPropagation()">
+                <div class="row-actions">
+                  <a href="index.php?delete_student=<?= (int)$s['id'] ?><?= $filterGroup ? '&group_id=' . (int)$filterGroup : '' ?>"
+                     class="btn btn-danger" style="padding:.3rem .65rem;font-size:.8125rem"
+                     onclick="return confirm('Удалить студента и связанную личную карточку?')">Удалить</a>
+                </div>
+              </td>
+              <?php endif ?>
             </tr>
             <?php endforeach ?>
           </tbody>
@@ -537,40 +623,8 @@ $breadcrumbs     = [
   </main>
 </div>
 
-<!-- Форма перехода на карточку студента -->
-<form method="POST" action="about_student.php" id="studentForm" style="display:none">
-  <input type="hidden" name="id"          id="f_id">
-  <input type="hidden" name="surname"     id="f_surname">
-  <input type="hidden" name="name"        id="f_name">
-  <input type="hidden" name="patronymic"  id="f_patronymic">
-  <input type="hidden" name="birth_date"  id="f_birth_date">
-  <input type="hidden" name="group_id"    id="f_group_id">
-  <input type="hidden" name="specialty"   id="f_specialty">
-  <input type="hidden" name="iin"         id="f_iin">
-  <input type="hidden" name="citizenship" id="f_citizenship">
-  <input type="hidden" name="nationality" id="f_nationality">
-</form>
-
 <script src="assets/app.js"></script>
 <script>
-const STUDENTS = <?= json_encode($students, JSON_UNESCAPED_UNICODE) ?>;
-
-function openStudent(index) {
-  const s = STUDENTS[index];
-  if (!s) return;
-  document.getElementById('f_id').value          = s.id;
-  document.getElementById('f_surname').value     = s.surname;
-  document.getElementById('f_name').value        = s.name;
-  document.getElementById('f_patronymic').value  = s.patronymic;
-  document.getElementById('f_birth_date').value  = s.birth_date;
-  document.getElementById('f_group_id').value    = s.group_id;
-  document.getElementById('f_specialty').value   = s.specialty ?? '';
-  document.getElementById('f_iin').value         = s.iin;
-  document.getElementById('f_citizenship').value = s.citizenship ?? '';
-  document.getElementById('f_nationality').value = s.nationality ?? '';
-  document.getElementById('studentForm').submit();
-}
-
 let expanded = false;
 function toggleRows() {
   const hidden = document.getElementById('hiddenRows');
@@ -582,6 +636,21 @@ function toggleRows() {
   btn.innerHTML = expanded
     ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg> Свернуть'
     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> Подробнее — ещё ${remaining} записей`;
+}
+
+
+const tableSearch = document.getElementById('tableSearch');
+if (tableSearch) {
+  tableSearch.addEventListener('input', () => {
+    const q = tableSearch.value.trim().toLowerCase();
+    const hidden = document.getElementById('hiddenRows');
+    const btn = document.getElementById('showMoreBtn');
+    if (hidden) hidden.style.display = q ? '' : (expanded ? '' : 'none');
+    if (btn) btn.style.display = q ? 'none' : '';
+    document.querySelectorAll('.student-row').forEach(row => {
+      row.style.display = !q || row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
 }
 
 <?php if ($isAdmin): ?>
