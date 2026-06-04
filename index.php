@@ -550,6 +550,7 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
         <div>
           <div class="module-name">Разработка приложения для управления расписанием в системе «СВГТК Портал»</div>
           <div class="module-desc">Просмотр и редактирование расписания занятий, замены, уведомления об изменениях.</div>
+          <div class="module-desc" style="margin-top:.375rem;font-size:.8rem;color:var(--color-text-faint)">🗓 Срок: июль — август</div>
         </div>
         <div class="module-footer">
           <span class="module-student">Бубнов Андрей</span>
