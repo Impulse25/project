@@ -3,7 +3,7 @@
 session_start();
 
 // Подключаем auth из модуля requests
-require_once __DIR__ . '/requests/config/db.php';
+require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/requests/includes/auth.php';
 require_once __DIR__ . '/requests/includes/language.php';
 
