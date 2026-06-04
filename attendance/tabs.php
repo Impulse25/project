@@ -151,6 +151,10 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     Аналитика
   </button>
+  <button class="tab-btn <?= $activeTab==='criteria' ? 'active' : '' ?>" onclick="switchTab('criteria')">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    Отчёт по критериям
+  </button>
 </div>
 
     <!-- ══════════════════ ТАБ 1: ЖУРНАЛ ══════════════════════ -->
@@ -992,6 +996,145 @@
       </div>
 
     </div><!-- /tab-analytics -->
+
+    <!-- ══════════════════ ТАБ 5: КРИТЕРИИ ══════════════════════ -->
+    <div id="tab-criteria" class="tab-panel <?= $activeTab==='criteria' ? 'active' : '' ?>">
+
+      <!-- Фильтры -->
+      <form method="get" class="rap-filters" id="criteriaForm">
+        <input type="hidden" name="tab"   value="criteria">
+        <input type="hidden" name="group" value="<?= $selectedGrp ?>">
+
+        <div class="form-group">
+          <label class="form-label">Группа</label>
+          <select name="cr_group" class="form-control" style="min-width:150px">
+            <option value="0">Все группы</option>
+            <?php foreach ($groups as $gid => $g): ?>
+            <option value="<?= $gid ?>" <?= ($crGroupId == $gid) ? 'selected' : '' ?>>
+              <?= htmlspecialchars($g['name']) ?>
+            </option>
+            <?php endforeach ?>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Период с</label>
+          <input type="date" name="cr_from" class="form-control"
+                 value="<?= htmlspecialchars($crDateFrom) ?>">
+        </div>
+        <div class="form-group">
+          <label class="form-label">по</label>
+          <input type="date" name="cr_to" class="form-control"
+                 value="<?= htmlspecialchars($crDateTo) ?>">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Порог посещ.&nbsp;%</label>
+          <input type="number" name="cr_threshold" class="form-control"
+                 value="<?= $crThreshold ?>" min="1" max="100" style="width:72px">
+        </div>
+
+        <div style="display:flex;gap:var(--space-2);align-items:flex-end;margin-left:auto;flex-wrap:wrap">
+          <button type="submit" class="btn btn-outline btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Применить
+          </button>
+          <a class="btn btn-primary btn-sm" id="excelDownloadBtn"
+             href="export_criteria.php?group_id=<?= $crGroupId ?>&date_from=<?= urlencode($crDateFrom) ?>&date_to=<?= urlencode($crDateTo) ?>&threshold=<?= $crThreshold ?>"
+             download>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Выгрузить Excel
+          </a>
+        </div>
+      </form>
+
+      <!-- KPI сводка -->
+      <div class="kpi-grid" style="margin-bottom:var(--space-4)">
+        <div class="kpi-card">
+          <div class="kpi-icon blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+          <div class="kpi-value"><?= $crTotalStudents ?></div>
+          <div class="kpi-label">Студентов всего</div>
+          <div class="kpi-pct"><?= $crGroupCount ?> групп(ы)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+          <div class="kpi-value"><?= $crRiskCount ?></div>
+          <div class="kpi-label">В группе риска</div>
+          <div class="kpi-pct">посещ. ниже <?= $crThreshold ?>%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+          <div class="kpi-value"><?= $crAvgPct ?>%</div>
+          <div class="kpi-label">Средняя посещаемость</div>
+          <div class="prog-bar"><div class="prog-fill green" style="width:<?= $crAvgPct ?>%"></div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon orange" style="background:var(--color-warning-highlight);color:var(--color-warning)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div class="kpi-value"><?= $crTotalAbsH ?> ч.</div>
+          <div class="kpi-label">Н/уч часов (итого)</div>
+          <div class="kpi-pct">Уваж.: <?= $crTotalExcH ?> ч.</div>
+        </div>
+      </div>
+
+      <!-- Таблица студентов -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Детализация по студентам</span>
+          <span style="font-size:12px;color:var(--color-text-muted)">
+            Период: <?= date('d.m.Y', strtotime($crDateFrom)) ?> — <?= date('d.m.Y', strtotime($crDateTo)) ?>
+            &nbsp;·&nbsp; Рабочих дней: <?= $crWorkDays ?>
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="criteriaTable">
+            <thead>
+              <tr>
+                <th style="width:36px">#</th>
+                <th>ФИО</th>
+                <th>Группа</th>
+                <th style="text-align:center">Н/уч (ч)</th>
+                <th style="text-align:center">Уваж. (ч)</th>
+                <th style="text-align:center">Опозд. (ч)</th>
+                <th style="text-align:center">Пропущ. дней</th>
+                <th style="text-align:center">% посещ.</th>
+                <th style="text-align:center">Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php $crNum = 0; foreach ($crStudents as $cs): $crNum++ ?>
+              <tr>
+                <td style="color:var(--color-text-faint);text-align:center"><?= $crNum ?></td>
+                <td><?= htmlspecialchars(trim($cs['full_name'])) ?></td>
+                <td style="color:var(--color-text-muted)"><?= htmlspecialchars($cs['group_name']) ?></td>
+                <td style="text-align:center<?= $cs['absent_h'] > 0 ? ';color:var(--color-danger);font-weight:600' : '' ?>"><?= (int)$cs['absent_h'] ?></td>
+                <td style="text-align:center;color:var(--color-text-muted)"><?= (int)$cs['excused_h'] ?></td>
+                <td style="text-align:center;color:var(--color-text-muted)"><?= (int)$cs['late_h'] ?></td>
+                <td style="text-align:center"><?= (int)$cs['missed_days'] ?></td>
+                <td style="text-align:center">
+                  <div style="display:flex;align-items:center;gap:6px;justify-content:center">
+                    <div style="width:48px;height:6px;border-radius:3px;background:var(--color-border);overflow:hidden">
+                      <div style="height:100%;width:<?= $cs['pct'] ?>%;background:<?= $cs['pct'] >= $crThreshold ? 'var(--color-success)' : 'var(--color-danger)' ?>"></div>
+                    </div>
+                    <span style="font-weight:600;color:<?= $cs['pct'] >= $crThreshold ? 'var(--color-success)' : 'var(--color-danger)' ?>"><?= $cs['pct'] ?>%</span>
+                  </div>
+                </td>
+                <td style="text-align:center">
+                  <?php if ($cs['status'] === 'риск'): ?>
+                  <span class="badge badge-absent">Риск</span>
+                  <?php else: ?>
+                  <span class="badge" style="background:var(--color-success-highlight);color:var(--color-success)">Норма</span>
+                  <?php endif ?>
+                </td>
+              </tr>
+              <?php endforeach ?>
+              <?php if (empty($crStudents)): ?>
+              <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--color-text-muted)">Нет данных за выбранный период</td></tr>
+              <?php endif ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /tab-criteria -->
 
 <?php endif; // $noGroupsWarning ?>
 

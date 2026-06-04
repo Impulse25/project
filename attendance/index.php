@@ -8,8 +8,9 @@
  */
 
 // ── Показываем ВСЕ ошибки (убрать на проде) ──────────────────────────────
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+// [ИСПРАВЛЕНИЕ #5] Вывод ошибок отключён на проде
+// ini_set('display_errors', 1);
+// ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 // Ловим фатальные ошибки которые обрезают HTML
@@ -34,11 +35,12 @@ session_start();
 // $pdo  = getDbConnection();
 
 // ── Читаем пользователя из сессии ────────────────────────────────────────────
-// Если сессии нет — демо-режим (убрать на проде)
+// [ИСПРАВЛЕНИЕ #5] Демо-режим с жёстко заданной сессией убран.
+// Неавторизованный пользователь перенаправляется на страницу входа.
 if (!isset($_SESSION['user_id'])) {
-    $_SESSION['user_id']   = 39;
-    $_SESSION['role']      = 'admin';
-    $_SESSION['full_name'] = 'Бубнов Андрей Валерьевич';
+    // Страница входа проекта
+    header('Location: /requests/login.php');
+    exit;
 }
 $user = [
     'id'        => (int)$_SESSION['user_id'],
@@ -54,7 +56,8 @@ $nameParts = explode(' ', trim($userName));
 $initials  = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p, 0, 1)), array_slice($nameParts, 0, 2)));
 
 // ── Параметры запроса ─────────────────────────────────────────────────────────
-$activeTab    = $_GET['tab']    ?? 'journal';
+$activeTab = in_array($_GET['tab'] ?? '', ['journal','report','documents','analytics','criteria'])
+    ? $_GET['tab'] : 'journal';
 $rawDate      = $_GET['date']   ?? date('Y-m-d');
 $selectedDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawDate) ? $rawDate : date('Y-m-d');
 $reportPeriod = $_GET['period'] ?? 'month';
@@ -62,12 +65,8 @@ $rawMonth     = $_GET['month']  ?? date('Y-m');
 $reportMonth  = preg_match('/^\d{4}-\d{2}$/', $rawMonth) ? $rawMonth : date('Y-m');
 
 // ── Подключение к БД ─────────────────────────────────────────────────────────
-$pdo = new PDO(
-    'mysql:host=localhost;dbname=p-355792_svgtk;charset=utf8mb4',
-    'root', '',
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
-);
+// Используем общий config/db.php проекта (APP_ENV: local / hosting / college)
+require_once __DIR__ . '/../config/db.php';
 
 // ── Группы: admin видит все, teacher — только свои (curator_id) ───────────────
 if ($isAdmin) {
@@ -406,6 +405,63 @@ $anAvgPct        = count($anGroups) > 0
     ? round(array_sum(array_column($anGroups,'pct')) / count($anGroups))
     : 100;
 $anRiskCount     = count(array_filter($anGroups, fn($g) => $g['pct'] < 75));
+
+// ── КРИТЕРИИ: параметры и данные ─────────────────────────────────────────
+$crGroupId   = isset($_GET['cr_group']) ? (int)$_GET['cr_group'] : 0;
+$crDateFrom  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_from'] ?? '') ? $_GET['cr_from'] : date('Y-m-01');
+$crDateTo    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_to']   ?? '') ? $_GET['cr_to']   : date('Y-m-t');
+$crThreshold = max(1, min(100, (int)($_GET['cr_threshold'] ?? 75)));
+
+// Рабочих дней в периоде
+$crWorkDays = 0;
+$crCur = strtotime($crDateFrom);
+while ($crCur <= strtotime($crDateTo)) {
+    if ((int)date('N', $crCur) <= 5) $crWorkDays++;
+    $crCur += 86400;
+}
+$crMaxHours = max(1, $crWorkDays * 6);
+
+// Группы для фильтра (те же что доступны пользователю)
+$crGroupIds = $crGroupId > 0 ? [$crGroupId] : array_keys($groups);
+if (empty($crGroupIds)) $crGroupIds = [0];
+$crIn = implode(',', array_map('intval', $crGroupIds));
+
+// Данные по студентам
+$crStmt = $pdo->prepare("
+    SELECT
+        s.id,
+        CONCAT(s.surname, ' ', s.name, ' ', COALESCE(s.patronymic,'')) AS full_name,
+        g.name AS group_name,
+        COALESCE(SUM(CASE WHEN a.status='absent'  THEN a.hours_missed ELSE 0 END),0) AS absent_h,
+        COALESCE(SUM(CASE WHEN a.status='excused' THEN a.hours_missed ELSE 0 END),0) AS excused_h,
+        COALESCE(SUM(CASE WHEN a.status='late'    THEN a.hours_missed ELSE 0 END),0) AS late_h,
+        COUNT(DISTINCT CASE WHEN a.status IN ('absent','late') THEN a.date END)      AS missed_days,
+        COUNT(DISTINCT CASE WHEN a.status='excused'            THEN a.date END)      AS excused_days
+    FROM edu_students s
+    INNER JOIN edu_groups g ON g.id = s.group_id
+    LEFT JOIN att_attendance a ON a.student_id = s.id
+                               AND a.date BETWEEN :df AND :dt
+    WHERE g.id IN ($crIn)
+    GROUP BY s.id, s.surname, s.name, s.patronymic, g.name
+    ORDER BY g.name, s.surname, s.name
+");
+$crStmt->execute([':df' => $crDateFrom, ':dt' => $crDateTo]);
+$crStudents = $crStmt->fetchAll();
+
+// Вычисляем % и статус
+foreach ($crStudents as &$cs) {
+    $cs['pct']    = (int)round(max(0, ($crMaxHours - $cs['absent_h']) / $crMaxHours * 100));
+    $cs['status'] = $cs['pct'] >= $crThreshold ? 'норма' : 'риск';
+}
+unset($cs);
+
+// KPI
+$crTotalStudents = count($crStudents);
+$crRiskCount     = count(array_filter($crStudents, fn($s) => $s['status'] === 'риск'));
+$crAvgPct        = $crTotalStudents > 0 ? (int)round(array_sum(array_column($crStudents,'pct')) / $crTotalStudents) : 100;
+$crTotalAbsH     = (int)array_sum(array_column($crStudents, 'absent_h'));
+$crTotalExcH     = (int)array_sum(array_column($crStudents, 'excused_h'));
+$crGroupCount    = count(array_unique(array_column($crStudents, 'group_name')));
 
 // ── Рендер страницы ──────────────────────────────────────────────────────
 require_once 'layout.php';

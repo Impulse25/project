@@ -1,7 +1,6 @@
 <?php
 session_start();
 header('Content-Type: application/json');
-// Показываем все PHP-ошибки в JSON чтобы видеть что идёт не так
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
@@ -13,17 +12,12 @@ set_error_handler(function($no, $str, $file, $line) {
     throw new ErrorException($str, 0, $no, $file, $line);
 });
 
-try {
-    $pdo = new PDO(
-        'mysql:host=localhost;dbname=p-355792_svgtk;charset=utf8mb4',
-        'root', '',
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
-    );
-} catch (PDOException $e) {
-    echo json_encode(['success' => false, 'error' => 'Ошибка подключения: ' . $e->getMessage()]);
-    exit;
-}
+// [ИСПРАВЛЕНИЕ #1] Проверка авторизации
+require_once __DIR__ . '/auth_check.php';
+
+// [ИСПРАВЛЕНИЕ #6] Централизованное подключение к БД
+require_once __DIR__ . '/db.php';
+$pdo = getDbConnection();
 
 $raw  = file_get_contents('php://input');
 $data = json_decode($raw, true);
@@ -42,17 +36,32 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['date'])) {
 $date       = $data['date'];
 $rows       = $data['rows'];
 $group_id   = isset($data['group_id']) ? (int)$data['group_id'] : 0;
-$teacher_id = $_SESSION['user_id'] ?? 1;
+$teacher_id = (int)$_SESSION['user_id'];
+$userRole   = $_SESSION['role'] ?? 'teacher';
 $allowed    = ['present', 'absent', 'excused', 'late'];
 
-// Получаем список допустимых student_id для данной группы (защита от подмены)
+// [ИСПРАВЛЕНИЕ #4] Проверяем, что группа принадлежит текущему преподавателю
+// Администраторы и директор могут редактировать любую группу
+$isAdmin = in_array($userRole, ['admin', 'director']);
+
+if ($group_id > 0 && !$isAdmin) {
+    $stmtGroup = $pdo->prepare(
+        "SELECT id FROM edu_groups WHERE id = :gid AND teacher_id = :tid"
+    );
+    $stmtGroup->execute([':gid' => $group_id, ':tid' => $teacher_id]);
+    if (!$stmtGroup->fetch()) {
+        echo json_encode(['success' => false, 'error' => 'Нет доступа к данной группе']);
+        exit;
+    }
+}
+
+// Получаем список допустимых student_id для данной группы (защита от подмены student_id)
 if ($group_id > 0) {
     $stmtIds = $pdo->prepare("SELECT id FROM edu_students WHERE group_id = :gid");
     $stmtIds->execute([':gid' => $group_id]);
-    $allowedStudentIds = array_column($stmtIds->fetchAll(), 'id');
-    $allowedStudentIds = array_flip($allowedStudentIds); // для быстрой проверки
+    $allowedStudentIds = array_flip(array_column($stmtIds->fetchAll(), 'id'));
 } else {
-    $allowedStudentIds = null; // group_id не передан — не ограничиваем
+    $allowedStudentIds = null;
 }
 
 $stmt = $pdo->prepare("
@@ -74,7 +83,7 @@ try {
 
         // Проверяем что студент принадлежит указанной группе
         if ($allowedStudentIds !== null && !isset($allowedStudentIds[$sid])) {
-            continue; // пропускаем чужих студентов
+            continue;
         }
 
         $status = in_array($row['status'] ?? '', $allowed) ? $row['status'] : 'present';
@@ -88,7 +97,7 @@ try {
             ':status'  => $status,
             ':hours'   => $hours,
             ':reason'  => $reason,
-            ':teacher' => (int)$teacher_id,
+            ':teacher' => $teacher_id,
         ]);
         $saved++;
     }

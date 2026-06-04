@@ -11,6 +11,16 @@ session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
+// Проверка авторизации (редирект, т.к. файл отдаёт docx, а не JSON)
+if (!isset($_SESSION['user_id'])) {
+    header('Location: /requests/login.php');
+    exit;
+}
+
+// Подключение к БД через общий config/db.php проекта
+require_once __DIR__ . '/../config/db.php';
+$pdo = $pdo ?? getDbConnection();
+
 // ── Параметры ────────────────────────────────────────────────────────────
 $group_id     = (int)($_GET['group_id']    ?? 0);
 $date_from    = $_GET['date_from']         ?? date('Y-m-01');
@@ -21,18 +31,6 @@ $semester     = trim($_GET['semester']     ?? '');
 
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) $date_from = date('Y-m-01');
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to))   $date_to   = date('Y-m-t');
-
-// ── БД ───────────────────────────────────────────────────────────────────
-try {
-    $pdo = new PDO(
-        'mysql:host=localhost;dbname=p-355792_svgtk;charset=utf8mb4',
-        'root', '',
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
-    );
-} catch (PDOException $e) {
-    die('Ошибка БД: ' . $e->getMessage());
-}
 
 // ── Группа ───────────────────────────────────────────────────────────────
 $grpStmt = $pdo->prepare("
