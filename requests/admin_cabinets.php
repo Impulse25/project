@@ -931,6 +931,7 @@ require_once __DIR__ . '/includes/sidebar.php';
             </div>
             
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="action" value="add_department">
                 
                 <div class="mb-4">
@@ -974,6 +975,7 @@ require_once __DIR__ . '/includes/sidebar.php';
             </div>
             
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="action" value="add_cabinet">
                 
                 <div class="mb-4">

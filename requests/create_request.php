@@ -99,7 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit();
         
     } catch (PDOException $e) {
-        $error = 'Ошибка при создании заявки: ' . $e->getMessage();
+        error_log("CREATE_REQUEST error: " . $e->getMessage());
+        $error = 'Ошибка при создании заявки. Попробуйте ещё раз или обратитесь к администратору.';
     }
 }
 
@@ -865,6 +866,7 @@ require_once __DIR__ . '/includes/sidebar.php';
 
     <div class="form-card">
       <form method="POST" id="requestForm">
+<?= csrf_field() ?>
 
         <!-- Тип заявки -->
         <div style="margin-bottom:1.5rem">

@@ -1111,6 +1111,7 @@ $currentLang = getCurrentLanguage();
                             <?php if ($tab === 'active'): ?>
                                 <!-- Кнопка "Взять в работу" -->
                                 <form method="POST" class="inline">
+<?= csrf_field() ?>
                                     <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
                                     <input type="hidden" name="action" value="take_to_work">
                                     <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold">
@@ -1145,6 +1146,7 @@ $currentLang = getCurrentLanguage();
                                 <!-- Установка срока (только если НЕ установлен) -->
                                 <?php if (empty($req['deadline'])): ?>
                                     <form method="POST" class="inline flex gap-2" onsubmit="return validateDeadline(this)">
+<?= csrf_field() ?>
                                         <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
                                         <input type="hidden" name="action" value="set_deadline">
                                         <input 
@@ -1289,6 +1291,7 @@ $currentLang = getCurrentLanguage();
         <div class="modal-content">
             <h3 class="text-xl font-bold mb-4">Отклонить заявку</h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" id="reject_request_id" name="request_id">
                 <input type="hidden" name="action" value="reject">
                 <textarea name="rejection_reason" rows="4" class="w-full px-3 py-2 border rounded mb-4" placeholder="Укажите причину отклонения..." required></textarea>
@@ -1312,6 +1315,7 @@ $currentLang = getCurrentLanguage();
                 Этот комментарий будет виден только системотехникам. Используйте для заметок о работе.
             </p>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" id="comment_request_id" name="request_id">
                 <input type="hidden" id="comment_id" name="comment_id" value="">
                 <input type="hidden" id="comment_action" name="action" value="add_comment">
@@ -1334,6 +1338,7 @@ $currentLang = getCurrentLanguage();
                 Отправить на согласование директору
             </h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" id="director_request_id" name="request_id">
                 <input type="hidden" name="action" value="send_to_director">
                 <div class="mb-4">
@@ -1358,6 +1363,7 @@ $currentLang = getCurrentLanguage();
                 Завершить заявку
             </h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" id="complete_request_id" name="request_id">
                 <input type="hidden" name="action" value="complete">
                 <div class="mb-4">
@@ -1382,6 +1388,7 @@ $currentLang = getCurrentLanguage();
                 <span>Создать новую задачу</span>
             </h3>
             <form method="POST" id="createTaskForm" onsubmit="console.log('Form submitting...', new FormData(this)); return true;">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_action" value="create_task">
                 
                 <div class="mb-4">
@@ -1473,6 +1480,7 @@ $currentLang = getCurrentLanguage();
             <p class="text-gray-600 mb-4">Вы уверены что хотите отменить задачу:</p>
             <p class="font-semibold text-gray-800 mb-4 p-3 bg-gray-100 rounded" id="cancel_task_title"></p>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_id" id="cancel_task_id">
                 <input type="hidden" name="task_action" value="cancel_task">
                 
@@ -1507,6 +1515,7 @@ $currentLang = getCurrentLanguage();
             <p class="text-gray-600 mb-2">Удалить задачу:</p>
             <p class="font-semibold text-gray-800 mb-4 p-3 bg-gray-100 rounded" id="delete_task_title"></p>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_id" id="delete_task_id">
                 <input type="hidden" name="task_action" value="delete_task">
                 
@@ -1530,6 +1539,7 @@ $currentLang = getCurrentLanguage();
                 <span>Изменить срок выполнения</span>
             </h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_id" id="deadline_task_id">
                 <input type="hidden" name="task_action" value="update_deadline">
                 
@@ -1561,6 +1571,7 @@ $currentLang = getCurrentLanguage();
             </h3>
             <p class="text-sm text-gray-600 mb-4">Задача: <strong id="comment_task_title"></strong></p>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_id" id="comment_task_id">
                 <input type="hidden" name="task_action" value="add_task_comment">
                 
@@ -1592,6 +1603,7 @@ $currentLang = getCurrentLanguage();
             </h3>
             <p class="text-xs text-gray-500 mb-4">Эти заметки видны только вам</p>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="task_id" id="notes_task_id">
                 <input type="hidden" name="task_action" value="update_notes">
                 
@@ -1621,6 +1633,7 @@ $currentLang = getCurrentLanguage();
                 <span id="extendModalTitle">Продление срока выполнения</span>
             </h3>
             <form method="POST" onsubmit="return validateExtendDeadline(this)">
+<?= csrf_field() ?>
                 <input type="hidden" name="request_id" id="extend_request_id">
                 <input type="hidden" name="action" value="extend_deadline">
                 <input type="hidden" id="extend_created_date">

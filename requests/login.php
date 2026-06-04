@@ -42,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
         
         <form method="POST">
+<?= csrf_field() ?>
             <div class="mb-4">
                 <label class="block text-gray-700 mb-2">Логин</label>
                 <input type="text" name="username" required 

@@ -784,6 +784,7 @@ require_once __DIR__ . '/includes/sidebar.php';
         <div class="card-header"><span class="card-title">Настройки роли</span></div>
         <div class="card-body">
           <form method="POST">
+<?= csrf_field() ?>
             <div class="form-group">
               <label class="form-label">Код роли</label>
               <input type="text" value="<?= htmlspecialchars($role['role_code']) ?>" disabled class="form-input">

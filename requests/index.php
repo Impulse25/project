@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // index.php — Страница входа
 // Исправлено: LDAP подключается только если LDAP_ACTIVE = true в config/db.php
 
@@ -75,6 +75,7 @@ $currentLang = getCurrentLanguage();
             <?php endif; ?>
 
             <form method="POST" action="index.php" class="space-y-4">
+<?= csrf_field() ?>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">
                         <?php echo t('login'); ?>

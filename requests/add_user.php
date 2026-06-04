@@ -92,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
             
             <form method="POST" class="space-y-4">
+<?= csrf_field() ?>
                 
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">

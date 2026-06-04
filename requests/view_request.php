@@ -291,14 +291,14 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                     </div>
                     
                     <h2 class="text-2xl font-bold text-gray-800 mb-4">
-                        <?php echo t('cabinet'); ?>: <?php echo $request['cabinet']; ?>
-                        <?php 
+                        <?php echo t('cabinet'); ?>: <?php echo htmlspecialchars($request['cabinet']); ?>
+                        <?php
                         if ($request['request_type'] === 'repair') {
-                            echo ' - ' . $request['equipment_type'];
+                            echo ' - ' . htmlspecialchars($request['equipment_type']);
                         } elseif ($request['request_type'] === '1c_database') {
                             echo ' - База данных 1С';
                         } elseif ($request['request_type'] === 'software') {
-                            echo ' - ' . $request['software_name'];
+                            echo ' - ' . htmlspecialchars($request['software_name']);
                         } elseif ($request['request_type'] === 'general_question') {
                             echo ' - Общие вопросы / Консультация';
                             if (!empty($request['software_or_system'])) {
@@ -312,13 +312,13 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                     <div class="bg-gray-50 rounded-lg p-4 mb-4">
                         <h3 class="font-semibold text-gray-700 mb-2">Описание:</h3>
                         <p class="text-gray-600 whitespace-pre-wrap">
-                            <?php 
+                            <?php
                             if ($request['request_type'] === 'repair') {
-                                echo $request['problem_description'];
+                                echo htmlspecialchars($request['problem_description']);
                             } elseif ($request['request_type'] === 'software') {
-                                echo $request['justification'];
+                                echo htmlspecialchars($request['justification']);
                             } elseif ($request['request_type'] === '1c_database') {
-                                echo $request['database_purpose'];
+                                echo htmlspecialchars($request['database_purpose']);
                             } elseif ($request['request_type'] === 'general_question') {
                                 echo htmlspecialchars($request['question_description']);
                             }
@@ -357,8 +357,8 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                             <div class="info-label">Создал:</div>
                             <div class="info-value">
                                 <i class="fas fa-user mr-2"></i>
-                                <?php echo $request['creator_name']; ?>
-                                (<?php echo $request['creator_position']; ?>)
+                                <?php echo htmlspecialchars($request['creator_name']); ?>
+                                (<?php echo htmlspecialchars($request['creator_position']); ?>)
                             </div>
                         </div>
                         
@@ -366,7 +366,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                             <div class="info-label">Кабинет:</div>
                             <div class="info-value">
                                 <i class="fas fa-door-open mr-2"></i>
-                                <?php echo $request['cabinet']; ?>
+                                <?php echo htmlspecialchars($request['cabinet']); ?>
                             </div>
                         </div>
                         
@@ -375,7 +375,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                 <div class="info-label">Инвентарный номер:</div>
                                 <div class="info-value">
                                     <i class="fas fa-barcode mr-2"></i>
-                                    <?php echo $request['inventory_number']; ?>
+                                    <?php echo htmlspecialchars($request['inventory_number']); ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -385,7 +385,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                 <div class="info-label">Номер группы:</div>
                                 <div class="info-value">
                                     <i class="fas fa-users mr-2"></i>
-                                    <?php echo $request['group_number']; ?>
+                                    <?php echo htmlspecialchars($request['group_number']); ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -403,7 +403,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                 <div class="info-label">Системотехник:</div>
                                 <div class="info-value">
                                     <i class="fas fa-user-cog mr-2"></i>
-                                    <?php echo $request['tech_name']; ?>
+                                    <?php echo htmlspecialchars($request['tech_name']); ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -433,7 +433,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                 <div class="info-label">Одобрил:</div>
                                 <div class="info-value">
                                     <i class="fas fa-user-tie mr-2"></i>
-                                    <?php echo $request['approver_name']; ?>
+                                    <?php echo htmlspecialchars($request['approver_name']); ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -453,7 +453,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                 <div class="info-label">Причина отклонения:</div>
                                 <div class="info-value text-red-600">
                                     <i class="fas fa-times-circle mr-2"></i>
-                                    <?php echo $request['rejection_reason']; ?>
+                                    <?php echo htmlspecialchars($request['rejection_reason']); ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -516,7 +516,7 @@ $students = $request['students_list'] ? json_decode($request['students_list'], t
                                         <div class="flex items-center gap-3 mb-2">
                                             <i class="fas <?php echo getRoleIcon($comment['role']); ?>"></i>
                                             <span class="font-semibold text-gray-800">
-                                                <?php echo $comment['full_name']; ?>
+                                                <?php echo htmlspecialchars($comment['full_name']); ?>
                                             </span>
                                             <span class="px-2 py-1 rounded text-xs font-medium bg-white shadow-sm">
                                                 <?php echo getRoleName($comment['role']); ?>

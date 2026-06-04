@@ -327,6 +327,7 @@ $user_name = $_SESSION['full_name'];
                     </div>
                     
                     <form method="POST" class="action-form">
+<?= csrf_field() ?>
                         <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
                         
                         <div class="form-group">
@@ -350,6 +351,7 @@ $user_name = $_SESSION['full_name'];
                     
                     <div id="reject_form_<?php echo $req['id']; ?>" style="display: none; margin-top: 15px;">
                         <form method="POST">
+<?= csrf_field() ?>
                             <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
                             <input type="hidden" name="action" value="reject">
                             <div class="form-group">

@@ -952,6 +952,7 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
             </div>
             
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="action" value="add_role">
                 
                 <div class="mb-4">

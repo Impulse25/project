@@ -144,6 +144,7 @@ $currentLang = getCurrentLanguage();
                     </h2>
                     
                     <form method="POST">
+<?= csrf_field() ?>
                         <div class="space-y-4">
                             
                             <!-- Логин -->

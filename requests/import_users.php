@@ -170,6 +170,7 @@ $currentLang = getCurrentLanguage();
                 <h2 class="text-xl font-bold text-gray-800 mb-6">Загрузить файл</h2>
                 
                 <form method="POST" enctype="multipart/form-data">
+<?= csrf_field() ?>
                     <div class="mb-6">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
                             Выберите CSV файл <span class="text-red-500">*</span>

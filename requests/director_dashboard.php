@@ -474,6 +474,7 @@ $isStatsTab = ($tab === 'stats');
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold mb-4 text-green-600"><i class="fas fa-check-circle mr-2"></i>Одобрить заявку</h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="request_id" id="approveRequestId">
                 <input type="hidden" name="action" value="approve">
                 <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-2">Комментарий:</label><textarea name="approval_comment" class="w-full px-4 py-2 border rounded-lg" rows="3"></textarea></div>
@@ -486,6 +487,7 @@ $isStatsTab = ($tab === 'stats');
         <div class="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold mb-4 text-red-600"><i class="fas fa-times-circle mr-2"></i>Отклонить заявку</h3>
             <form method="POST">
+<?= csrf_field() ?>
                 <input type="hidden" name="request_id" id="rejectRequestId">
                 <input type="hidden" name="action" value="reject">
                 <div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-2">Причина: *</label><textarea name="reason" class="w-full px-4 py-2 border rounded-lg" rows="3" required></textarea></div>

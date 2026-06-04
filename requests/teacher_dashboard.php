@@ -923,6 +923,7 @@ require_once __DIR__ . '/includes/sidebar.php';
       Подтвердить выполнение работы
     </div>
     <form method="POST">
+<?= csrf_field() ?>
       <input type="hidden" name="action" value="confirm_work">
       <input type="hidden" name="request_id" id="confirm-rid">
       <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
@@ -944,6 +945,7 @@ require_once __DIR__ . '/includes/sidebar.php';
       Вернуть на доработку
     </div>
     <form method="POST">
+<?= csrf_field() ?>
       <input type="hidden" name="action" value="reject_work">
       <input type="hidden" name="request_id" id="reject-rid">
       <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
