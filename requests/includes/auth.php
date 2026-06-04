@@ -239,8 +239,7 @@ function requireLogin(): void {
 function requireRole(string $role): void {
     requireLogin();
     if (!hasRole($role)) {
-        header('Location: teacher_dashboard.php');
-        exit();
+        redirectToDashboard();
     }
 }
 
