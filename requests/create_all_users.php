@@ -1,6 +1,6 @@
-<?php
+﻿<?php
 // create_all_users.php - Создание всех пользователей системы
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 
 $password = '12345'; // Один пароль для всех
 $hash = password_hash($password, PASSWORD_DEFAULT);

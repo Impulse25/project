@@ -1,7 +1,7 @@
-<?php
+﻿<?php
 // login.php - Пример правильной обработки входа
 
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
 
 // Если уже авторизован - редирект

@@ -1,7 +1,7 @@
-<?php
+﻿<?php
 // unified_dashboard.php - Универсальная панель для новых ролей
 
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
 require_once 'includes/language.php';
 

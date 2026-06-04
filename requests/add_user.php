@@ -1,7 +1,7 @@
-<?php
+﻿<?php
 // add_user.php - Добавление пользователя
 
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
 
 requireRole('admin');

@@ -1,6 +1,6 @@
-<?php
+﻿<?php
 session_start();
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
 
 if (!isLoggedIn() || $_SESSION['role'] !== 'director') {

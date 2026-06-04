@@ -1,6 +1,6 @@
-<?php
+﻿<?php
 // update_password.php - Обновить пароль для пользователя
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 
 $username = 'admin';
 $newPassword = '12345';
