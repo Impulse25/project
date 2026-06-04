@@ -333,6 +333,10 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Заявки в ИТ</span>
     </a>
+    <a href="#" data-href="/schedule/" onclick="handleCardClick(this, event)" class="nav-item">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Расписание</span>
+    </a>
   </nav>
 
   <div class="sidebar-footer">
@@ -531,6 +535,25 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
         <div class="module-footer">
           <span class="module-student">Бубнов А.В.</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-primary)"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </a>
+
+      <!-- Расписание -->
+      <a href="#" data-href="/schedule/" onclick="handleCardClick(this, event)" class="module-card">
+        <div class="module-card-accent" style="background:#0d9488"></div>
+        <div class="module-top">
+          <div class="module-icon" style="background:#ccfbf1;color:#0d9488">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/></svg>
+          </div>
+          <span class="module-status status-dev">В разработке</span>
+        </div>
+        <div>
+          <div class="module-name">Разработка приложения для управления расписанием в системе «СВГТК Портал»</div>
+          <div class="module-desc">Просмотр и редактирование расписания занятий, замены, уведомления об изменениях.</div>
+        </div>
+        <div class="module-footer">
+          <span class="module-student">Бубнов Андрей</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
 
