@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Выход — QR</title>
+  <link rel="stylesheet" href="css/entry.css">
+</head>
+<body>
+
+  <!-- ── Topbar ── -->
+  <div class="topbar">
+
+    <button class="topbar-btn" onclick="toggleTheme()" title="Сменить тему" style="width:36px;height:36px;padding:0;justify-content:center;">
+      <svg id="themeIcon" xmlns="http://www.w3.org/2000/svg" fill="none"
+          viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"
+          style="width:16px;height:16px;">
+        <path stroke-linecap="round"
+        d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+
+    <a href="/" class="topbar-btn">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+           viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+        <path stroke-linecap="round" stroke-linejoin="round"
+        d="M3 12l9-9 9 9M5 10v9a1 1 0 0 0 1 1h4v-5h4v5h4a1 1 0 0 0 1-1v-9"/>
+      </svg>
+      <span>Главная</span>
+    </a>
+
+  </div>
+
+  <!-- ── Main screen ── -->
+  <div class="screen">
+    <div class="label-top">Колледж</div>
+    <div class="title">Выход</div>
+
+    <div class="input-wrap">
+      <input type="text" id="iin" placeholder="Введите ИИН"
+             maxlength="12" autocomplete="off">
+    </div>
+
+    <button class="btn" data-action="exit" onclick="sendData()">Отметить выход</button>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="result-card" id="resultCard"></div>
+  </div>
+
+  <!-- ── Help floating button ── -->
+  <button class="help-btn" onclick="document.getElementById('helpModal').classList.add('open')">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"
+         viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <path stroke-linecap="round" d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17" stroke-width="2.5"/>
+    </svg>
+    Справка
+  </button>
+
+  <!-- ── Help modal ── -->
+  <div class="help-modal-bg" id="helpModal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="help-modal">
+      <button class="hm-close" onclick="document.getElementById('helpModal').classList.remove('open')" title="Закрыть">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+
+      <h2>Регистрация выхода</h2>
+      <p class="hm-sub">Страница exit.html — терминал отметки ухода</p>
+
+      <div class="hm-section">
+        <h3>Пошаговая инструкция</h3>
+        <ul class="hm-steps">
+          <li><span class="hm-num">1</span><span>Убедитесь, что на экране написано <b>«Выход»</b>, а не «Вход».</span></li>
+          <li><span class="hm-num">2</span><span>Введите ваш <b>12-значный ИИН</b> в поле ввода.</span></li>
+          <li><span class="hm-num">3</span><span>Нажмите кнопку <b>«Отметить выход»</b> или клавишу <b>Enter</b>.</span></li>
+          <li><span class="hm-num">4</span><span>Дождитесь карточки подтверждения с вашими ФИО, группой и временем.</span></li>
+          <li><span class="hm-num">5</span><span>Нажмите <b>«Закрыть»</b>. Отметка зафиксирована.</span></li>
+        </ul>
+      </div>
+
+      <div class="hm-section">
+        <h3>Важно знать</h3>
+        <div class="hm-note">
+          ⚠️ Нельзя отметить выход, не зафиксировав вход. Если вы ещё не отмечали приход сегодня — сначала перейдите на <b>entry.html</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/qr/js/entry.js"></script>
+  <script src="/qr/js/journal.js"></script>
+</body>
+</html>
