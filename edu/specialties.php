@@ -10,6 +10,8 @@ if (($_SESSION['role'] ?? '') !== 'admin') {
 
 $message     = '';
 $messageType = '';
+$filterQ = trim((string)($_GET['q'] ?? ''));
+$filterQualification = in_array(($_GET['qualification_status'] ?? ''), ['filled', 'empty'], true) ? $_GET['qualification_status'] : '';
 
 // ── Удаление ───────────────────────────────────────────────────────────────
 if (isset($_GET['delete'])) {
@@ -65,7 +67,21 @@ if (isset($_GET['edit'])) {
 }
 
 // ── Список ─────────────────────────────────────────────────────────────────
-$rows  = $pdo->query("SELECT * FROM edu_specialties ORDER BY code")->fetchAll(PDO::FETCH_ASSOC);
+$where = [];
+$params = [];
+if ($filterQ !== '') {
+    $where[] = "CONCAT_WS(' ', code, name_ru, name_kz, qualification) LIKE :q";
+    $params[':q'] = '%' . $filterQ . '%';
+}
+if ($filterQualification === 'filled') {
+    $where[] = "TRIM(COALESCE(qualification, '')) <> ''";
+} elseif ($filterQualification === 'empty') {
+    $where[] = "TRIM(COALESCE(qualification, '')) = ''";
+}
+$sql = "SELECT * FROM edu_specialties" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . " ORDER BY code";
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$rows  = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $total = count($rows);
 
 $pageTitle       = 'Специальности — СВГТК Портал';
@@ -188,6 +204,28 @@ $breadcrumbs     = [
         </form>
       </div>
     </div>
+
+    <!-- Критерии -->
+    <form method="GET" action="specialties.php" class="criteria-card">
+      <div class="criteria-grid">
+        <div class="criteria-field">
+          <label for="specialty_q">Поиск</label>
+          <input type="search" id="specialty_q" name="q" placeholder="Код, название, квалификация…" value="<?= htmlspecialchars($filterQ) ?>">
+        </div>
+        <div class="criteria-field">
+          <label for="qualification_status">Квалификация</label>
+          <select id="qualification_status" name="qualification_status">
+            <option value="">Все записи</option>
+            <option value="filled" <?= $filterQualification === 'filled' ? 'selected' : '' ?>>Квалификация заполнена</option>
+            <option value="empty" <?= $filterQualification === 'empty' ? 'selected' : '' ?>>Без квалификации</option>
+          </select>
+        </div>
+        <div class="criteria-actions">
+          <button type="submit" class="btn btn-primary">Найти</button>
+          <a href="specialties.php" class="btn btn-outline">Сброс</a>
+        </div>
+      </div>
+    </form>
 
     <!-- Список -->
     <div class="card">

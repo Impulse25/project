@@ -68,7 +68,31 @@ function edu_full_name(array $row): string
 
 function edu_xml(string $value): string
 {
-    return htmlspecialchars($value, ENT_XML1 | ENT_COMPAT, 'UTF-8');
+    // Word строго проверяет XML внутри DOCX. Данные из БД/Excel/старых DOC могут
+    // содержать управляющие символы или Unicode non-character вроде U+FFFE, из-за
+    // чего Word открывает файл через восстановление. Перед вставкой в OOXML чистим
+    // строку и экранируем спецсимволы.
+    if ($value === '') {
+        return '';
+    }
+
+    if (function_exists('mb_check_encoding') && !mb_check_encoding($value, 'UTF-8')) {
+        $converted = @mb_convert_encoding($value, 'UTF-8', 'UTF-8, Windows-1251, CP1251, ISO-8859-1');
+        if (is_string($converted)) {
+            $value = $converted;
+        }
+    }
+
+    // XML 1.0 legal chars: TAB, LF, CR, #x20-#xD7FF, #xE000-#xFFFD, #x10000-#x10FFFF.
+    $clean = @preg_replace('/[^\x{9}\x{A}\x{D}\x{20}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u', '', $value);
+    if ($clean === null) {
+        $clean = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+        if ($clean === false) {
+            $clean = '';
+        }
+    }
+
+    return htmlspecialchars($clean, ENT_XML1 | ENT_COMPAT | ENT_SUBSTITUTE, 'UTF-8');
 }
 
 function edu_docx_run(string $text, bool $bold = false, int $size = 22): string
@@ -163,7 +187,7 @@ function edu_send_file(string $path, string $downloadName, string $contentType):
 
 function edu_fetch_student_grades(PDO $pdo, int $studentId, bool $approvedOnly = false): array
 {
-    $statusSql = $approvedOnly ? "AND gs.status = 'approved'" : "AND gs.status <> 'rejected'";
+    $statusSql = $approvedOnly ? "AND gs.status = 'approved'" : "AND (gs.status IS NULL OR gs.status <> 'rejected')";
     $stmt = $pdo->prepare("\n        SELECT eg.*, gs.type, gs.status,\n               sub.code AS subject_code, sub.name_ru AS subject_name, sub.hours_total,\n               sem.year_start, sem.year_end, sem.semester_num\n        FROM edu_grades eg\n        JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id\n        LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id\n        LEFT JOIN edu_semesters sem ON sem.id = gs.semester_id\n        WHERE eg.student_id = ? $statusSql\n        ORDER BY sem.year_start, sem.semester_num, sub.name_ru\n    ");
     $stmt->execute([$studentId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);

@@ -9,6 +9,36 @@ $isDirector = edu_is_director();
 $isTeacher = edu_is_teacher();
 $canEdit   = false;
 
+$studentCardExtraColumns = [
+    'gender' => 'Пол',
+    'birth_place' => 'Место рождения',
+    'enrollment_order' => '№ и дата приказа о зачислении',
+    'previous_education' => 'Образование до поступления',
+    'school_finished' => 'Оконченный класс, школа и год',
+    'promotion_orders' => 'Приказы о переводе на курсы',
+    'graduation_order' => 'Приказ о выпуске',
+    'job_assignment' => 'Направление на работу / должность',
+    'coursework_topic' => 'Тема курсовой работы',
+    'coursework_grade' => 'Оценка ГКК (0–100)',
+    'state_exam_1' => 'Государственный экзамен 1',
+    'state_exam_2' => 'Государственный экзамен 2',
+    'state_exam_3' => 'Государственный экзамен 3',
+    'diploma_topic' => 'Тема диплома',
+    'diploma_score' => 'Оценка за диплом (0–100)',
+];
+$studentCardColumns = [];
+try {
+    $studentCardColumns = array_map(static fn($r) => $r['Field'], $pdo->query('SHOW COLUMNS FROM edu_student_cards')->fetchAll(PDO::FETCH_ASSOC));
+} catch (Throwable $e) {
+    $studentCardColumns = [];
+}
+$studentCardEnabledExtraColumns = array_values(array_filter(array_keys($studentCardExtraColumns), static fn($c) => in_array($c, $studentCardColumns, true)));
+
+function edu_about_card_value(array $row, string $key): string {
+    return trim((string)($row['card_' . $key] ?? ''));
+}
+
+
 // ── Получаем student_id из POST или GET ────────────────────────────────────
 $studentId = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
 if (!$studentId) {
@@ -90,19 +120,43 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
                      $iin, $group_id, $speciality_id, $citizenship, $nationality,
                      $studentId]);
 
-        // Upsert edu_student_cards
-        if ($photoPath !== null) {
-            $pdo->prepare("
-                INSERT INTO edu_student_cards (student_id, photo_path, notes)
-                VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE photo_path=VALUES(photo_path), notes=VALUES(notes)
-            ")->execute([$studentId, $photoPath, $notes]);
-        } else {
-            $pdo->prepare("
-                INSERT INTO edu_student_cards (student_id, notes)
-                VALUES (?, ?)
-                ON DUPLICATE KEY UPDATE notes=VALUES(notes)
-            ")->execute([$studentId, $notes]);
+        // Upsert edu_student_cards. Дополнительные поля появятся после миграции 008.
+        $cardInsertCols = ['student_id'];
+        $cardInsertVals = [$studentId];
+        $cardUpdateCols = [];
+
+        if ($photoPath !== null && in_array('photo_path', $studentCardColumns, true)) {
+            $cardInsertCols[] = 'photo_path';
+            $cardInsertVals[] = $photoPath;
+            $cardUpdateCols[] = 'photo_path';
+        }
+        if (in_array('notes', $studentCardColumns, true)) {
+            $cardInsertCols[] = 'notes';
+            $cardInsertVals[] = $notes;
+            $cardUpdateCols[] = 'notes';
+        }
+        foreach ($studentCardEnabledExtraColumns as $extraCol) {
+            $cardInsertCols[] = $extraCol;
+            if (in_array($extraCol, ['coursework_grade', 'diploma_score'], true)) {
+                $rawScore = trim((string)($_POST[$extraCol] ?? ''));
+                if ($rawScore === '') {
+                    $cardInsertVals[] = null;
+                } else {
+                    $score = (int)round((float)str_replace(',', '.', $rawScore));
+                    $score = max(0, min(100, $score));
+                    $cardInsertVals[] = $score;
+                }
+            } else {
+                $cardInsertVals[] = trim((string)($_POST[$extraCol] ?? ''));
+            }
+            $cardUpdateCols[] = $extraCol;
+        }
+        if ($cardUpdateCols) {
+            $quotedCols = array_map(static fn($c) => '`' . str_replace('`', '``', $c) . '`', $cardInsertCols);
+            $placeholders = implode(', ', array_fill(0, count($cardInsertCols), '?'));
+            $updates = implode(', ', array_map(static fn($c) => '`' . str_replace('`', '``', $c) . '`=VALUES(`' . str_replace('`', '``', $c) . '`)', $cardUpdateCols));
+            $sql = 'INSERT INTO edu_student_cards (' . implode(', ', $quotedCols) . ') VALUES (' . $placeholders . ') ON DUPLICATE KEY UPDATE ' . $updates;
+            $pdo->prepare($sql)->execute($cardInsertVals);
         }
 
         $message     = 'Данные успешно сохранены.';
@@ -115,6 +169,10 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
 }
 
 // ── Загружаем данные из БД ─────────────────────────────────────────────────
+$extraCardSelect = '';
+foreach ($studentCardEnabledExtraColumns as $extraCol) {
+    $extraCardSelect .= ', sc.`' . str_replace('`', '``', $extraCol) . '` AS card_' . $extraCol;
+}
 $stmt = $pdo->prepare("
     SELECT s.*,
            g.name        AS group_name,
@@ -122,6 +180,7 @@ $stmt = $pdo->prepare("
            sp.name_ru    AS specialty_name,
            sc.photo_path AS card_photo,
            sc.notes      AS card_notes
+           $extraCardSelect
     FROM edu_students s
     LEFT JOIN edu_groups      g  ON g.id  = s.group_id
     LEFT JOIN edu_specialties sp ON sp.id = s.speciality_id
@@ -305,11 +364,11 @@ $breadcrumbs     = [
       </a>
       <a href="export_student_card.php?student_id=<?= $studentId ?>" class="btn btn-outline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        Личная карточка DOCX
+        Личная карточка
       </a>
       <a href="export_diploma_book.php?student_id=<?= $studentId ?>" class="btn btn-outline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        Дипломная книга XLSX
+        Дипломная книга
       </a>
       <button class="btn btn-outline" onclick="window.print()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -420,6 +479,25 @@ $breadcrumbs     = [
               <label>Национальность</label>
               <input type="text" name="nationality" maxlength="100" value="<?= htmlspecialchars($s['nationality'] ?? '') ?>">
             </div>
+            <?php if (in_array('gender', $studentCardEnabledExtraColumns, true)): ?>
+            <div class="edit-field">
+              <label>Пол для личной карточки</label>
+              <select name="gender">
+                <option value="">— не указан —</option>
+                <?php foreach (['мужской', 'женский'] as $genderOption): ?>
+                <option value="<?= $genderOption ?>" <?= edu_about_card_value($s, 'gender') === $genderOption ? 'selected' : '' ?>><?= $genderOption ?></option>
+                <?php endforeach ?>
+              </select>
+            </div>
+            <?php endif ?>
+            <?php foreach (['birth_place', 'enrollment_order', 'previous_education', 'school_finished'] as $extraField): ?>
+              <?php if (in_array($extraField, $studentCardEnabledExtraColumns, true)): ?>
+              <div class="edit-field">
+                <label><?= htmlspecialchars($studentCardExtraColumns[$extraField]) ?></label>
+                <input type="text" name="<?= htmlspecialchars($extraField) ?>" maxlength="255" value="<?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?>">
+              </div>
+              <?php endif ?>
+            <?php endforeach ?>
           </div>
 
           <!-- Фото -->
@@ -441,6 +519,25 @@ $breadcrumbs     = [
               <input type="file" name="photo" accept=".jpg,.jpeg,.png" id="photoInput">
             </div>
           </div>
+
+          <?php if ($studentCardEnabledExtraColumns): ?>
+          <div class="edit-grid" style="margin-bottom:1.25rem">
+            <?php foreach (['promotion_orders', 'graduation_order', 'job_assignment', 'coursework_topic', 'coursework_grade', 'state_exam_1', 'state_exam_2', 'state_exam_3', 'diploma_topic', 'diploma_score'] as $extraField): ?>
+              <?php if (in_array($extraField, $studentCardEnabledExtraColumns, true)): ?>
+              <div class="edit-field" style="<?= in_array($extraField, ['promotion_orders', 'job_assignment', 'coursework_topic', 'diploma_topic'], true) ? 'grid-column:1/-1' : '' ?>">
+                <label><?= htmlspecialchars($studentCardExtraColumns[$extraField]) ?></label>
+                <?php if (in_array($extraField, ['promotion_orders', 'job_assignment', 'coursework_topic', 'diploma_topic'], true)): ?>
+                <textarea name="<?= htmlspecialchars($extraField) ?>"><?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?></textarea>
+                <?php elseif (in_array($extraField, ['coursework_grade', 'diploma_score'], true)): ?>
+                <input type="number" name="<?= htmlspecialchars($extraField) ?>" min="0" max="100" step="1" value="<?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?>">
+                <?php else: ?>
+                <input type="text" name="<?= htmlspecialchars($extraField) ?>" maxlength="255" value="<?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?>">
+                <?php endif ?>
+              </div>
+              <?php endif ?>
+            <?php endforeach ?>
+          </div>
+          <?php endif ?>
 
           <!-- Заметки -->
           <div class="edit-field" style="margin-bottom:1.25rem">
@@ -561,6 +658,14 @@ function toggleEdit() {
   const visible = sec.style.display !== 'none';
   sec.style.display = visible ? 'none' : 'block';
   if (!visible) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+if (new URLSearchParams(window.location.search).get('edit') === '1') {
+  const sec = document.getElementById('editSection');
+  if (sec) {
+    sec.style.display = 'block';
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 // Превью фото при выборе файла

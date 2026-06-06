@@ -9,6 +9,11 @@ if (($_SESSION['role'] ?? '') !== 'admin') {
 
 $message     = '';
 $messageType = '';
+$filterQ = trim((string)($_GET['q'] ?? ''));
+$filterSpecialty = (isset($_GET['specialty_id']) && $_GET['specialty_id'] !== '') ? (int)$_GET['specialty_id'] : null;
+$filterCourse = (isset($_GET['course']) && $_GET['course'] !== '') ? (int)$_GET['course'] : null;
+$filterYear = (isset($_GET['year_started']) && $_GET['year_started'] !== '') ? (int)$_GET['year_started'] : null;
+$filterCurriculum = in_array(($_GET['curriculum_status'] ?? ''), ['linked', 'empty'], true) ? $_GET['curriculum_status'] : '';
 
 // ── Удаление ───────────────────────────────────────────────────────────────
 if (isset($_GET['delete'])) {
@@ -53,7 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $foundCuratorId = $curatorStmt->fetchColumn();
         $curator_id = $foundCuratorId ? (int)$foundCuratorId : null;
     }
-    $year_started = (int)($_POST['year_started'] ?? 0);
+    $year_started  = (int)($_POST['year_started']  ?? 0);
+    $curriculum_id = ($_POST['curriculum_id'] ?? '') !== '' ? (int)$_POST['curriculum_id'] : null;
 
     if ($name === '' || $specialty_id === 0 || $course < 1 || $course > 4 || $year_started < 2000) {
         $message     = 'Заполните все обязательные поля корректно.';
@@ -61,13 +67,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } else {
         try {
             if ($_POST['action'] === 'create') {
-                $pdo->prepare("INSERT INTO edu_groups (name, specialty_id, course, curator_id, year_started) VALUES (?,?,?,?,?)")
-                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started]);
+                $pdo->prepare("INSERT INTO edu_groups (name, specialty_id, course, curator_id, year_started, curriculum_id) VALUES (?,?,?,?,?,?)")
+                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started, $curriculum_id]);
                 $message = "Группа «{$name}» добавлена.";
             } else {
                 $editId = (int)$_POST['edit_id'];
-                $pdo->prepare("UPDATE edu_groups SET name=?, specialty_id=?, course=?, curator_id=?, year_started=? WHERE id=?")
-                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started, $editId]);
+                $pdo->prepare("UPDATE edu_groups SET name=?, specialty_id=?, course=?, curator_id=?, year_started=?, curriculum_id=? WHERE id=?")
+                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started, $curriculum_id, $editId]);
                 $message = "Группа «{$name}» обновлена.";
             }
             $messageType = 'success';
@@ -93,17 +99,48 @@ if (isset($_GET['edit'])) {
 
 // Данные для выпадающих списков
 $specialties = $pdo->query("SELECT id, code, name_ru FROM edu_specialties ORDER BY name_ru")->fetchAll(PDO::FETCH_ASSOC);
+$curricula   = $pdo->query("SELECT id, name, enrollment_year, specialty_code FROM edu_curricula ORDER BY enrollment_year DESC, name")->fetchAll(PDO::FETCH_ASSOC);
+$years = $pdo->query("SELECT DISTINCT year_started FROM edu_groups WHERE year_started IS NOT NULL ORDER BY year_started DESC")->fetchAll(PDO::FETCH_COLUMN);
 
 // Список групп с JOIN
-$rows  = $pdo->query("
+$where = [];
+$params = [];
+if ($filterQ !== '') {
+    $where[] = "CONCAT_WS(' ', g.name, sp.code, sp.name_ru, c.name, COALESCE(NULLIF(u.full_name, ''), u.username)) LIKE :q";
+    $params[':q'] = '%' . $filterQ . '%';
+}
+if ($filterSpecialty) {
+    $where[] = 'g.specialty_id = :specialty_id';
+    $params[':specialty_id'] = $filterSpecialty;
+}
+if ($filterCourse && $filterCourse >= 1 && $filterCourse <= 4) {
+    $where[] = 'g.course = :course';
+    $params[':course'] = $filterCourse;
+}
+if ($filterYear) {
+    $where[] = 'g.year_started = :year_started';
+    $params[':year_started'] = $filterYear;
+}
+if ($filterCurriculum === 'linked') {
+    $where[] = 'g.curriculum_id IS NOT NULL';
+} elseif ($filterCurriculum === 'empty') {
+    $where[] = 'g.curriculum_id IS NULL';
+}
+$sqlRows = "
     SELECT g.*, sp.name_ru AS specialty_name, sp.code AS specialty_code,
            COALESCE(NULLIF(u.full_name, ''), u.username) AS curator_name,
-           u.username AS curator_username
+           u.username AS curator_username,
+           c.name AS curriculum_name
     FROM edu_groups g
     LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id
     LEFT JOIN users u ON u.id = g.curator_id
+    LEFT JOIN edu_curricula c ON c.id = g.curriculum_id
+" . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . "
     ORDER BY g.name
-")->fetchAll(PDO::FETCH_ASSOC);
+";
+$stmtRows = $pdo->prepare($sqlRows);
+$stmtRows->execute($params);
+$rows = $stmtRows->fetchAll(PDO::FETCH_ASSOC);
 $total = count($rows);
 
 $pageTitle       = 'Группы — СВГТК Портал';
@@ -247,6 +284,18 @@ $breadcrumbs     = [
                      placeholder="<?= date('Y') ?>"
                      value="<?= htmlspecialchars($editRow['year_started'] ?? date('Y')) ?>">
             </div>
+            <div class="form-group">
+              <label for="f_curriculum">Учебный план (РУПл)</label>
+              <select id="f_curriculum" name="curriculum_id">
+                <option value="">— Не привязан —</option>
+                <?php foreach ($curricula as $cur): ?>
+                <option value="<?= $cur['id'] ?>"
+                  <?= ($editRow['curriculum_id'] ?? null) == $cur['id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($cur['name']) ?> (<?= $cur['enrollment_year'] ?>)
+                </option>
+                <?php endforeach ?>
+              </select>
+            </div>
             <div class="form-group curator-picker">
               <label for="f_curator_name">Куратор</label>
               <input type="hidden" id="f_curator" name="curator_id" value="<?= htmlspecialchars($editRow['curator_id'] ?? '') ?>">
@@ -266,6 +315,55 @@ $breadcrumbs     = [
       </div>
     </div>
 
+    <!-- Критерии -->
+    <form method="GET" action="groups.php" class="criteria-card">
+      <div class="criteria-grid">
+        <div class="criteria-field">
+          <label for="groups_q">Поиск</label>
+          <input type="search" id="groups_q" name="q" placeholder="Группа, куратор, РУПл…" value="<?= htmlspecialchars($filterQ) ?>">
+        </div>
+        <div class="criteria-field">
+          <label for="groups_specialty">Специальность</label>
+          <select id="groups_specialty" name="specialty_id">
+            <option value="">Все специальности</option>
+            <?php foreach ($specialties as $sp): ?>
+            <option value="<?= (int)$sp['id'] ?>" <?= $filterSpecialty === (int)$sp['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sp['code'] . ' · ' . $sp['name_ru']) ?></option>
+            <?php endforeach ?>
+          </select>
+        </div>
+        <div class="criteria-field">
+          <label for="groups_course">Курс</label>
+          <select id="groups_course" name="course">
+            <option value="">Все курсы</option>
+            <?php for ($c = 1; $c <= 4; $c++): ?>
+            <option value="<?= $c ?>" <?= $filterCourse === $c ? 'selected' : '' ?>><?= $c ?> курс</option>
+            <?php endfor ?>
+          </select>
+        </div>
+        <div class="criteria-field">
+          <label for="groups_year">Год набора</label>
+          <select id="groups_year" name="year_started">
+            <option value="">Все годы</option>
+            <?php foreach ($years as $year): ?>
+            <option value="<?= (int)$year ?>" <?= $filterYear === (int)$year ? 'selected' : '' ?>><?= (int)$year ?></option>
+            <?php endforeach ?>
+          </select>
+        </div>
+        <div class="criteria-field">
+          <label for="groups_curriculum">РУПл</label>
+          <select id="groups_curriculum" name="curriculum_status">
+            <option value="">Все группы</option>
+            <option value="linked" <?= $filterCurriculum === 'linked' ? 'selected' : '' ?>>РУПл привязан</option>
+            <option value="empty" <?= $filterCurriculum === 'empty' ? 'selected' : '' ?>>Без РУПл</option>
+          </select>
+        </div>
+        <div class="criteria-actions">
+          <button type="submit" class="btn btn-primary">Найти</button>
+          <a href="groups.php" class="btn btn-outline">Сброс</a>
+        </div>
+      </div>
+    </form>
+
     <!-- Список -->
     <div class="card">
       <div class="card-header">
@@ -281,7 +379,7 @@ $breadcrumbs     = [
           <thead>
             <tr>
               <th>#</th><th>Название</th><th>Специальность</th><th>Курс</th>
-              <th>Год набора</th><th>Куратор</th><th style="text-align:right">Действия</th>
+              <th>Год набора</th><th>Куратор</th><th>Учебный план</th><th style="text-align:right">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -296,6 +394,15 @@ $breadcrumbs     = [
               <td><span class="badge badge-blue"><?= $r['course'] ?> курс</span></td>
               <td><?= htmlspecialchars($r['year_started']) ?></td>
               <td style="color:var(--color-text-muted)"><?= htmlspecialchars($r['curator_name'] ?? ($r['curator_id'] ? 'ID ' . $r['curator_id'] : '—')) ?></td>
+              <td style="font-size:.8125rem">
+                <?php if ($r['curriculum_name']): ?>
+                <a href="curriculum_view.php?id=<?= $r['curriculum_id'] ?>" style="color:var(--color-primary)">
+                  <?= htmlspecialchars($r['curriculum_name']) ?>
+                </a>
+                <?php else: ?>
+                <span style="color:var(--color-text-faint)">—</span>
+                <?php endif ?>
+              </td>
               <td>
                 <div class="action-btns" style="justify-content:flex-end">
                   <a href="export_op_pvt.php?group_id=<?= $r['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem" title="Экспорт ОП">ОП</a>

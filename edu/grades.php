@@ -14,6 +14,23 @@ if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     exit;
 }
 
+function edu_grades_column_exists(PDO $pdo, string $column): bool
+{
+    static $cache = [];
+    if (array_key_exists($column, $cache)) {
+        return $cache[$column];
+    }
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'edu_grades'
+          AND COLUMN_NAME = ?
+    ");
+    $stmt->execute([$column]);
+    return $cache[$column] = ((int)$stmt->fetchColumn() > 0);
+}
+
 $sheetId = (int)($_GET['sheet_id'] ?? 0);
 if (!$sheetId) { header('Location: grade_sheets.php'); exit; }
 
@@ -21,11 +38,14 @@ if (!$sheetId) { header('Location: grade_sheets.php'); exit; }
 $stmt = $pdo->prepare("
     SELECT gs.*,
            g.name AS group_name, g.curator_id,
-           sub.name_ru AS subject_name, sub.code AS subject_code,
+           COALESCE(NULLIF(m.name, ''), sub.name_ru) AS subject_name,
+           COALESCE(NULLIF(m.index_code, ''), sub.code) AS subject_code,
+           m.id AS module_id, m.curriculum_id AS module_curriculum_id,
            sem.year_start, sem.year_end, sem.semester_num,
            u.full_name AS teacher_name
     FROM edu_grade_sheets gs
     LEFT JOIN edu_groups    g   ON g.id   = gs.group_id
+    LEFT JOIN edu_curriculum_modules m ON m.id = gs.curriculum_module_id
     LEFT JOIN edu_subjects  sub ON sub.id = gs.subject_id
     LEFT JOIN edu_semesters sem ON sem.id = gs.semester_id
     LEFT JOIN users         u   ON u.id   = gs.teacher_id
@@ -57,11 +77,21 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grad
     $comments = $_POST['comment'] ?? [];
     $date     = trim($_POST['grade_date'] ?? '');
 
-    $upd = $pdo->prepare("
-        UPDATE edu_grades
-        SET grade=?, passed=?, absent=?, comment=?, date=?, updated_at=NOW()
-        WHERE grade_sheet_id=? AND student_id=?
-    ");
+    $hasGradeModule = edu_grades_column_exists($pdo, 'curriculum_module_id');
+    $hasGradeSemester = edu_grades_column_exists($pdo, 'curriculum_semester');
+    if ($hasGradeModule && $hasGradeSemester) {
+        $upd = $pdo->prepare("
+            UPDATE edu_grades
+            SET grade=?, passed=?, absent=?, comment=?, date=?, curriculum_module_id=?, curriculum_semester=?, updated_at=NOW()
+            WHERE grade_sheet_id=? AND student_id=?
+        ");
+    } else {
+        $upd = $pdo->prepare("
+            UPDATE edu_grades
+            SET grade=?, passed=?, absent=?, comment=?, date=?, updated_at=NOW()
+            WHERE grade_sheet_id=? AND student_id=?
+        ");
+    }
 
     try {
         $pdo->beginTransaction();
@@ -79,7 +109,11 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grad
             $pas     = isset($passed[$sid])    ? 1 : 0;
             $com     = isset($comments[$sid])  ? trim($comments[$sid]) : null;
             $d       = $date ?: null;
-            $upd->execute([$g, $pas, $abs, $com ?: null, $d, $sheetId, $sid]);
+            if ($hasGradeModule && $hasGradeSemester) {
+                $upd->execute([$g, $pas, $abs, $com ?: null, $d, (int)($sheet['curriculum_module_id'] ?? 0) ?: null, (int)($sheet['curriculum_semester'] ?? 0) ?: null, $sheetId, $sid]);
+            } else {
+                $upd->execute([$g, $pas, $abs, $com ?: null, $d, $sheetId, $sid]);
+            }
         }
         $pdo->commit();
         $message = 'Оценки сохранены.'; $messageType = 'success';
@@ -118,7 +152,7 @@ $pageTitle = 'Оценки — ' . htmlspecialchars($sheet['group_name'] . ' / '
 $breadcrumbs = [
     ['label'=>'СВГТК',           'href'=>'../'],
     ['label'=>'Учебный процесс', 'href'=>'index.php'],
-    ['label'=>'Ведомости',       'href'=>'grade_sheets.php'],
+    ['label'=>'Оценки',          'href'=>'grade_sheets.php'],
     ['label'=>$sheet['group_name'].' / '.$sheet['subject_code']],
 ];
 ?>
@@ -170,7 +204,7 @@ $breadcrumbs = [
     <div class="page-header">
       <div>
         <h1 class="page-title"><?= htmlspecialchars($sheet['group_name']) ?> / <?= htmlspecialchars($sheet['subject_name']) ?></h1>
-        <p class="page-subtitle"><?= $TYPE_LABELS[$sheet['type']] ?> · <?= $sheet['year_start'].'/'.$sheet['year_end'] ?> · <?= $sheet['semester_num'] ?> семестр</p>
+        <p class="page-subtitle"><?= $TYPE_LABELS[$sheet['type']] ?> · <?= !empty($sheet['curriculum_semester']) ? ((int)$sheet['curriculum_semester'] . ' семестр РУПл') : ($sheet['year_start'].'/'.$sheet['year_end'].' · '.$sheet['semester_num'].' семестр') ?></p>
       </div>
       <div class="page-actions">
         <a href="export_grade_sheet.php?sheet_id=<?= $sheetId ?>" class="btn btn-outline">
@@ -197,7 +231,7 @@ $breadcrumbs = [
         </button>
         <a href="grade_sheets.php" class="btn btn-outline">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          К ведомостям
+          К оценкам
         </a>
       </div>
     </div>

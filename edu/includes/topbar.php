@@ -13,6 +13,7 @@
  * А также $isLoggedIn, $initials, $userName из includes/auth.php.
  */
 $breadcrumbs = $breadcrumbs ?? [];
+$adminUrl = function_exists('edu_dashboard_url') ? edu_dashboard_url($userRole ?? null) : '../requests/teacher_dashboard.php';
 $chevron = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
 ?>
 <header class="topbar">
@@ -31,6 +32,10 @@ $chevron = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="
   <div class="topbar-right">
     <?php if ($isLoggedIn): ?>
     <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?: 'U' ?></div>
+    <a href="<?= htmlspecialchars($adminUrl) ?>" class="btn btn-outline topbar-admin-link">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      В админку
+    </a>
     <?php endif ?>
     <button class="theme-toggle" id="themeToggle">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

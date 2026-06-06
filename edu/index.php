@@ -18,73 +18,207 @@ $message     = '';
 $messageType = '';
 
 $filterGroup = (isset($_GET['group_id']) && $_GET['group_id'] !== '') ? (int)$_GET['group_id'] : null;
+$filterSpecialty = (isset($_GET['specialty_id']) && $_GET['specialty_id'] !== '') ? (int)$_GET['specialty_id'] : null;
+$filterYear = (isset($_GET['year_started']) && $_GET['year_started'] !== '') ? (int)$_GET['year_started'] : null;
+$filterCard = in_array(($_GET['card_status'] ?? ''), ['filled', 'empty'], true) ? $_GET['card_status'] : '';
+$filterQ = trim((string)($_GET['q'] ?? ''));
 $accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
 
-// ── Загрузка Excel (только admin) ─────────────────────────────────────────
+// ── Загрузка Excel со студентами (только admin) ─────────────────────────
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
     $file = $_FILES['excel_file'];
     if ($file['error'] === UPLOAD_ERR_OK) {
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['xlsx', 'xls', 'csv'])) {
+        if (in_array($ext, ['xlsx', 'xls', 'csv'], true)) {
             try {
                 $spreadsheet = IOFactory::load($file['tmp_name']);
                 $sheet       = $spreadsheet->getActiveSheet();
                 $rows        = $sheet->toArray(null, true, true, false);
 
-                // ── Кешируем группы и специальности по имени для быстрого поиска ──
-                $groupMap    = [];  // name => id
-                $specMap     = [];  // name_ru => id
-                foreach ($pdo->query("SELECT id, name FROM edu_groups")->fetchAll(PDO::FETCH_ASSOC) as $g) {
-                    $groupMap[mb_strtolower(trim($g['name']))] = $g['id'];
-                }
-                foreach ($pdo->query("SELECT id, name_ru FROM edu_specialties")->fetchAll(PDO::FETCH_ASSOC) as $sp) {
-                    $specMap[mb_strtolower(trim($sp['name_ru']))] = $sp['id'];
-                }
-
-                // ── Вспомогательные функции ────────────────────────────
-                // Определяем, является ли строка заголовком (содержит нечисловые данные в нужных полях)
-                $isHeaderRow = function(array $row): bool {
-                    $cell = trim((string)($row[3] ?? '')); // колонка "Дата рождения"
-                    // Если в колонке даты не дата-подобная строка — это заголовок
-                    return !preg_match('/^\d{4}-\d{2}-\d{2}$/', $cell)
-                        && !preg_match('/^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}$/', $cell)
-                        && !is_numeric($cell);
+                $normalize = static function($value): string {
+                    $value = mb_strtolower(trim((string)$value));
+                    $value = str_replace('ё', 'е', $value);
+                    $value = preg_replace('/\s+/u', ' ', $value);
+                    return trim($value);
                 };
 
-                $parseDate = function($val): ?string {
+                $compact = static function($value) use ($normalize): string {
+                    return preg_replace('/[^a-zа-я0-9]+/u', '', $normalize($value));
+                };
+
+                $parseDate = static function($val): ?string {
                     if ($val === null || trim((string)$val) === '') return null;
-                    // PhpSpreadsheet может вернуть float (Excel serial date)
-                    if (is_float($val) || (is_numeric($val) && strpos((string)$val, '-') === false)) {
-                        $unix = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$val);
-                        return date('Y-m-d', $unix);
+                    if ($val instanceof DateTimeInterface) return $val->format('Y-m-d');
+                    if (is_float($val) || (is_int($val)) || (is_numeric($val) && strpos((string)$val, '-') === false && (float)$val > 25000)) {
+                        try {
+                            $unix = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$val);
+                            return date('Y-m-d', $unix);
+                        } catch (Throwable $e) {
+                            return null;
+                        }
                     }
                     $str = trim((string)$val);
-                    // Уже ISO
                     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $str)) return $str;
-                    // dd.mm.yyyy или dd/mm/yyyy
-                    if (preg_match('/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/', $str, $m)) {
-                        return sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+                    if (preg_match('/^(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})$/', $str, $m)) {
+                        $year = (int)$m[3];
+                        if ($year < 100) $year += ($year > 30 ? 1900 : 2000);
+                        return sprintf('%04d-%02d-%02d', $year, (int)$m[2], (int)$m[1]);
                     }
                     return null;
                 };
 
-                $lookupGroup = function(?string $val) use ($groupMap): ?int {
-                    if ($val === null || trim($val) === '') return null;
-                    $key = mb_strtolower(trim($val));
-                    return $groupMap[$key] ?? null;
+                $splitFio = static function(string $fio): array {
+                    $fio = trim(preg_replace('/\s+/u', ' ', $fio));
+                    if ($fio === '') return ['', '', ''];
+                    $parts = preg_split('/\s+/u', $fio);
+                    return [
+                        $parts[0] ?? '',
+                        $parts[1] ?? '',
+                        implode(' ', array_slice($parts, 2)),
+                    ];
                 };
 
-                $lookupSpec = function(?string $val) use ($specMap): ?int {
-                    if ($val === null || trim($val) === '') return null;
-                    $key = mb_strtolower(trim($val));
-                    return $specMap[$key] ?? null;
+                // ── Кешируем группы и специальности по имени для быстрого поиска ──
+                $groupMap = [];
+                foreach ($pdo->query("SELECT id, name FROM edu_groups")->fetchAll(PDO::FETCH_ASSOC) as $g) {
+                    $groupMap[$compact($g['name'])] = (int)$g['id'];
+                }
+                $specMap = [];
+                foreach ($pdo->query("SELECT id, name_ru FROM edu_specialties")->fetchAll(PDO::FETCH_ASSOC) as $sp) {
+                    $specMap[$compact($sp['name_ru'])] = (int)$sp['id'];
+                }
+
+                $lookupGroup = static function(?string $val) use ($groupMap, $compact): ?int {
+                    $key = $compact($val ?? '');
+                    return $key !== '' ? ($groupMap[$key] ?? null) : null;
+                };
+                $lookupSpec = static function(?string $val) use ($specMap, $compact): ?int {
+                    $key = $compact($val ?? '');
+                    return $key !== '' ? ($specMap[$key] ?? null) : null;
                 };
 
-                // ── Формат файла: Фамилия|Имя|Отчество|Дата рождения|Группа|Специальность|ИИН|Гражданство|Национальность
-                // Колонки: 0=Фамилия, 1=Имя, 2=Отчество, 3=Дата, 4=Группа(имя), 5=Спец(имя), 6=ИИН (опц), 7=Гражд, 8=Нац
-                // Пропускаем любые строки-заголовки автоматически
+                // ── Определяем строку заголовков и колонки. Поддерживаются как экспорт системы,
+                //    так и более широкие Excel-файлы НОБД, где ФИО может быть в одной колонке.
+                $headerRowIndex = null;
+                $headers = [];
+                $scanLimit = min(25, count($rows));
+                for ($i = 0; $i < $scanLimit; $i++) {
+                    $score = 0;
+                    foreach ($rows[$i] as $cell) {
+                        $h = $normalize($cell);
+                        if ($h === '') continue;
+                        if (str_contains($h, 'фамилия') || preg_match('/^фио$|ф\.и\.о/u', $h)) $score += 2;
+                        if ($h === 'имя' || str_contains($h, 'отчество')) $score++;
+                        if (str_contains($h, 'дата') && str_contains($h, 'рож')) $score += 2;
+                        if (str_contains($h, 'группа')) $score++;
+                        if (str_contains($h, 'специаль')) $score++;
+                        if (str_contains($h, 'иин')) $score++;
+                    }
+                    if ($score >= 3) {
+                        $headerRowIndex = $i;
+                        $headers = $rows[$i];
+                        break;
+                    }
+                }
 
-                // Полная замена — очищаем таблицы перед вставкой
+                $col = [
+                    'surname' => null, 'name' => null, 'patronymic' => null, 'fio' => null,
+                    'birth' => null, 'group' => null, 'speciality' => null, 'iin' => null,
+                    'citizenship' => null, 'nationality' => null,
+                ];
+
+                if ($headerRowIndex !== null) {
+                    foreach ($headers as $idx => $head) {
+                        $h = $normalize($head);
+                        $hc = $compact($head);
+                        if ($h === '') continue;
+                        if ($col['fio'] === null && (preg_match('/^фио$|ф\.и\.о/u', $h) || str_contains($h, 'фамилия имя') || str_contains($h, 'фамилия, имя'))) $col['fio'] = $idx;
+                        if ($col['surname'] === null && (str_contains($h, 'фамилия') || $hc === 'surname')) $col['surname'] = $idx;
+                        if ($col['name'] === null && ($h === 'имя' || $hc === 'name')) $col['name'] = $idx;
+                        if ($col['patronymic'] === null && str_contains($h, 'отчество')) $col['patronymic'] = $idx;
+                        if ($col['birth'] === null && str_contains($h, 'рож')) $col['birth'] = $idx;
+                        if ($col['group'] === null && str_contains($h, 'группа')) $col['group'] = $idx;
+                        if ($col['speciality'] === null && str_contains($h, 'специаль')) $col['speciality'] = $idx;
+                        if ($col['iin'] === null && str_contains($h, 'иин')) $col['iin'] = $idx;
+                        if ($col['citizenship'] === null && str_contains($h, 'граждан')) $col['citizenship'] = $idx;
+                        if ($col['nationality'] === null && str_contains($h, 'национ')) $col['nationality'] = $idx;
+                    }
+                }
+
+                // Стандартный формат экспорта системы: Фамилия|Имя|Отчество|Дата рождения|Группа|Специальность|ИИН|Гражданство|Национальность
+                if ($col['surname'] === null && $col['fio'] === null) {
+                    $col = [
+                        'surname' => 0, 'name' => 1, 'patronymic' => 2, 'fio' => null,
+                        'birth' => 3, 'group' => 4, 'speciality' => 5, 'iin' => 6,
+                        'citizenship' => 7, 'nationality' => 8,
+                    ];
+                    $dataStart = 0;
+                } else {
+                    $dataStart = ($headerRowIndex ?? -1) + 1;
+                }
+
+                $studentsToImport = [];
+                $skipped = 0;
+                $unresolvedGroups = [];
+                $unresolvedSpecs = [];
+
+                foreach ($rows as $rowIndex => $row) {
+                    if ($rowIndex < $dataStart) { $skipped++; continue; }
+
+                    $surname = '';
+                    $name = '';
+                    $patronymic = '';
+
+                    if ($col['fio'] !== null) {
+                        [$surname, $name, $patronymic] = $splitFio((string)($row[$col['fio']] ?? ''));
+                    }
+                    if ($col['surname'] !== null && trim((string)($row[$col['surname']] ?? '')) !== '') {
+                        $surname = trim((string)$row[$col['surname']]);
+                    }
+                    if ($col['name'] !== null && trim((string)($row[$col['name']] ?? '')) !== '') {
+                        $name = trim((string)$row[$col['name']]);
+                    }
+                    if ($col['patronymic'] !== null && trim((string)($row[$col['patronymic']] ?? '')) !== '') {
+                        $patronymic = trim((string)$row[$col['patronymic']]);
+                    }
+
+                    $iin = $col['iin'] !== null ? trim((string)($row[$col['iin']] ?? '')) : '';
+                    $birthDate = $col['birth'] !== null ? $parseDate($row[$col['birth']] ?? null) : null;
+
+                    // Строка не является студентом, если нет ФИО и ИИН.
+                    if ($surname === '' && $name === '' && $iin === '') { $skipped++; continue; }
+                    if ($surname === '' && $name === '' && $iin !== '') { $skipped++; continue; }
+
+                    $groupVal = $col['group'] !== null ? trim((string)($row[$col['group']] ?? '')) : '';
+                    $specVal  = $col['speciality'] !== null ? trim((string)($row[$col['speciality']] ?? '')) : '';
+                    $groupId = $lookupGroup($groupVal);
+                    $specId = $lookupSpec($specVal);
+                    if ($groupVal !== '' && !$groupId) $unresolvedGroups[$groupVal] = true;
+                    if ($specVal !== '' && !$specId) $unresolvedSpecs[$specVal] = true;
+
+                    if ($iin === '') {
+                        // Временный ИИН нужен, чтобы не ломать сохранение в схемах, где iin обязателен.
+                        $iin = 'T' . strtoupper(substr(md5($surname . $name . $patronymic . ($birthDate ?? '') . $groupVal), 0, 11));
+                    }
+
+                    $studentsToImport[] = [
+                        'surname' => $surname,
+                        'name' => $name,
+                        'patronymic' => $patronymic,
+                        'birth_date' => $birthDate,
+                        'group_id' => $groupId,
+                        'speciality_id' => $specId,
+                        'iin' => $iin,
+                        'citizenship' => $col['citizenship'] !== null ? trim((string)($row[$col['citizenship']] ?? '')) : '',
+                        'nationality' => $col['nationality'] !== null ? trim((string)($row[$col['nationality']] ?? '')) : '',
+                    ];
+                }
+
+                if (!$studentsToImport) {
+                    throw new RuntimeException('В файле не найдено ни одной строки студента. Проверь структуру колонок: ФИО/Фамилия, Имя, Дата рождения, Группа, Специальность, ИИН. Старые данные не очищены.');
+                }
+
+                // Полная замена студентов выполняется только после успешного разбора файла.
                 $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
                 $pdo->exec("TRUNCATE TABLE edu_student_cards");
                 $pdo->exec("TRUNCATE TABLE edu_students");
@@ -98,47 +232,17 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_fi
                 ");
 
                 $imported = 0;
-                $skipped  = 0;
-                foreach ($rows as $row) {
-                    $surname = trim((string)($row[0] ?? ''));
-                    $name    = trim((string)($row[1] ?? ''));
-
-                    // Пропускаем пустые строки
-                    if ($surname === '' && $name === '') { $skipped++; continue; }
-
-                    // Пропускаем заголовки — строки где дата не дата
-                    if ($isHeaderRow($row)) { $skipped++; continue; }
-
-                    $birthDate = $parseDate($row[3] ?? null);
-                    if (!$birthDate) { $skipped++; continue; } // без даты — не студент
-
-                    $groupVal = trim((string)($row[4] ?? ''));
-                    $specVal  = trim((string)($row[5] ?? ''));
-                    $iin = trim((string)($row[6] ?? ''));
-
-                    // Если ИИН пуст — ищем по ФИО+дата, иначе генерируем временный
-                    if ($iin === '') {
-                        $chk = $pdo->prepare("SELECT iin FROM edu_students WHERE surname=? AND name=? AND birth_date=? LIMIT 1");
-                        $chk->execute([$surname, $name, $birthDate]);
-                        $existing = $chk->fetchColumn();
-                        if ($existing) {
-                            $iin = $existing; // обновляем существующего
-                        } else {
-                            // Генерируем временный ИИН: T + 11 символов hex (итого 12)
-                            $iin = 'T' . strtoupper(substr(md5($surname.$name.$birthDate), 0, 11));
-                        }
-                    }
-
+                foreach ($studentsToImport as $studentRow) {
                     $stmt->execute([
-                        ':surname'       => $surname,
-                        ':name'          => $name,
-                        ':patronymic'    => trim((string)($row[2] ?? '')),
-                        ':birth_date'    => $birthDate,
-                        ':group_id'      => $lookupGroup($groupVal),
-                        ':speciality_id' => $lookupSpec($specVal),
-                        ':iin'           => $iin,
-                        ':citizenship'   => trim((string)($row[7] ?? '')),
-                        ':nationality'   => trim((string)($row[8] ?? '')),
+                        ':surname'       => $studentRow['surname'],
+                        ':name'          => $studentRow['name'],
+                        ':patronymic'    => $studentRow['patronymic'],
+                        ':birth_date'    => $studentRow['birth_date'],
+                        ':group_id'      => $studentRow['group_id'],
+                        ':speciality_id' => $studentRow['speciality_id'],
+                        ':iin'           => $studentRow['iin'],
+                        ':citizenship'   => $studentRow['citizenship'],
+                        ':nationality'   => $studentRow['nationality'],
                     ]);
                     $imported++;
                 }
@@ -155,11 +259,28 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_fi
                     VALUES (?, NOW(), ?, ?)
                 ")->execute([$file['name'], $userId, $savedPath]);
 
-                $skipNote = $skipped > 0 ? " (пропущено строк-заголовков/пустых: $skipped)" : '';
-                $message     = "Успешно импортировано $imported студентов из файла «{$file['name']}»$skipNote";
+                // После импорта сбрасываем фильтры страницы, иначе новые студенты могут быть скрыты старым фильтром.
+                $filterGroup = null;
+                $filterSpecialty = null;
+                $filterYear = null;
+                $filterCard = '';
+                $filterQ = '';
+                $_GET = [];
+
+                $dbCount = (int)$pdo->query("SELECT COUNT(*) FROM edu_students")->fetchColumn();
+                $skipNote = $skipped > 0 ? " (пропущено служебных/пустых строк: $skipped)" : '';
+                $warn = '';
+                if ($unresolvedGroups) {
+                    $warn .= ' Не найдены группы: ' . implode(', ', array_slice(array_keys($unresolvedGroups), 0, 5)) . (count($unresolvedGroups) > 5 ? '...' : '') . '.';
+                }
+                if ($unresolvedSpecs) {
+                    $warn .= ' Не найдены специальности: ' . implode(', ', array_slice(array_keys($unresolvedSpecs), 0, 5)) . (count($unresolvedSpecs) > 5 ? '...' : '') . '.';
+                }
+                $message = "Успешно импортировано $imported студентов из файла «{$file['name']}». Сейчас в таблице студентов: $dbCount.$skipNote$warn";
                 $messageType = 'success';
-            } catch (Exception $e) {
-                $message     = 'Ошибка при чтении файла: ' . $e->getMessage();
+            } catch (Throwable $e) {
+                try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 1"); } catch (Throwable $ignored) {}
+                $message     = 'Ошибка при импорте файла: ' . $e->getMessage();
                 $messageType = 'error';
             }
         } else {
@@ -207,8 +328,26 @@ if (($isAdmin || $isDir || $isTeacher) && isset($_GET['export']) && $_GET['expor
                s.nationality
         FROM edu_students s
         LEFT JOIN edu_groups g ON g.id = s.group_id
-        LEFT JOIN edu_specialties sp ON sp.id = s.speciality_id
+        LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)
+        LEFT JOIN edu_student_cards sc ON sc.student_id = s.id
     ";
+    if ($filterSpecialty) {
+        $where[] = 'COALESCE(s.speciality_id, g.specialty_id) = :specid';
+        $exportParams[':specid'] = $filterSpecialty;
+    }
+    if ($filterYear) {
+        $where[] = 'g.year_started = :year_started';
+        $exportParams[':year_started'] = $filterYear;
+    }
+    if ($filterCard === 'filled') {
+        $where[] = 'sc.student_id IS NOT NULL';
+    } elseif ($filterCard === 'empty') {
+        $where[] = 'sc.student_id IS NULL';
+    }
+    if ($filterQ !== '') {
+        $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, sp.name_ru) LIKE :q";
+        $exportParams[':q'] = '%' . $filterQ . '%';
+    }
     if ($where) $exportSql .= ' WHERE ' . implode(' AND ', $where);
     $exportSql .= " ORDER BY s.surname, s.name";
     $exportStmt = $pdo->prepare($exportSql);
@@ -316,18 +455,23 @@ if ($isAdmin || $isDir) {
 } elseif ($isTeacher && $accessibleGroupIds) {
     $allGroups = $pdo->query("SELECT id, name FROM edu_groups WHERE id IN (" . edu_in_int_list($accessibleGroupIds) . ") ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 }
+$allSpecialties = $pdo->query("SELECT id, code, name_ru FROM edu_specialties ORDER BY name_ru")->fetchAll(PDO::FETCH_ASSOC);
+$allYears = $pdo->query("SELECT DISTINCT year_started FROM edu_groups WHERE year_started IS NOT NULL ORDER BY year_started DESC")->fetchAll(PDO::FETCH_COLUMN);
 // ── Выборка студентов из БД ───────────────────────────────────────────────
 $sql    = "
     SELECT s.id, s.surname, s.name, s.patronymic,
            s.birth_date,
-           g.name AS group_name, g.id AS group_id,
+           g.name AS group_name, g.id AS group_id, g.year_started,
            sp.name_ru AS specialty,
-           s.iin, s.citizenship, s.nationality
+           s.iin, s.citizenship, s.nationality,
+           sc.id AS card_id
     FROM edu_students s
     LEFT JOIN edu_groups g  ON g.id  = s.group_id
-    LEFT JOIN edu_specialties sp ON sp.id = s.speciality_id
+    LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)
+    LEFT JOIN edu_student_cards sc ON sc.student_id = s.id
 ";
 $params = [];
+$where = [];
 
 if ($isTeacher) {
     // Только студенты доступных групп преподавателя.
@@ -335,13 +479,31 @@ if ($isTeacher) {
     if ($filterGroup && in_array($filterGroup, $teacherGroupIds, true)) {
         $teacherGroupIds = [$filterGroup];
     }
-    $sql .= $teacherGroupIds ? " WHERE s.group_id IN (" . edu_in_int_list($teacherGroupIds) . ")" : " WHERE 1=0";
+    $where[] = $teacherGroupIds ? "s.group_id IN (" . edu_in_int_list($teacherGroupIds) . ")" : "1=0";
 } elseif ($filterGroup) {
-    $sql   .= " WHERE s.group_id = :gid";
+    $where[] = "s.group_id = :gid";
     $params[':gid'] = $filterGroup;
 } elseif (!$isAdmin && !$isDir) {
-    $sql .= " WHERE 1=0";
+    $where[] = "1=0";
 }
+if ($filterSpecialty) {
+    $where[] = "COALESCE(s.speciality_id, g.specialty_id) = :specid";
+    $params[':specid'] = $filterSpecialty;
+}
+if ($filterYear) {
+    $where[] = "g.year_started = :year_started";
+    $params[':year_started'] = $filterYear;
+}
+if ($filterCard === 'filled') {
+    $where[] = "sc.student_id IS NOT NULL";
+} elseif ($filterCard === 'empty') {
+    $where[] = "sc.student_id IS NULL";
+}
+if ($filterQ !== '') {
+    $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, sp.name_ru) LIKE :q";
+    $params[':q'] = '%' . $filterQ . '%';
+}
+if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
 $sql .= " ORDER BY s.surname, s.name";
 
 $stmt = $pdo->prepare($sql);
@@ -396,9 +558,6 @@ $breadcrumbs     = [
     .filter-bar label { font-size: 0.875rem; font-weight: 500; color: var(--color-text-muted); white-space: nowrap; }
     .filter-bar select { font-size: 0.875rem; padding: 0.375rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
     .refs-nav { display: flex; gap: 0.625rem; flex-wrap: wrap; }
-    .table-search { display:flex; align-items:center; gap:.75rem; padding:.875rem 1.5rem; border-bottom:1px solid var(--color-divider); background:var(--color-surface); }
-    .table-search input { width:min(420px,100%); padding:.5rem .75rem; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); color:var(--color-text); }
-    .table-search input:focus { outline:none; border-color:var(--color-primary); }
     .row-actions { display:flex; gap:.375rem; flex-wrap:wrap; }
   </style>
 </head>
@@ -419,18 +578,30 @@ $breadcrumbs     = [
       <div class="page-actions">
         <?php if ($isAdmin): ?>
         <div class="refs-nav">
-          <a href="specialties.php"   class="btn btn-outline">Специальности</a>
-          <a href="groups.php"        class="btn btn-outline">Группы</a>
-          <a href="subjects.php"      class="btn btn-outline">Дисциплины</a>
-          <a href="semesters.php"     class="btn btn-outline">Семестры</a>
-          <a href="import_logs.php"   class="btn btn-outline">История импортов</a>
-          <a href="grade_sheets.php"  class="btn btn-outline">Ведомости</a>
+          <a href="specialties.php"      class="btn btn-outline">Специальности</a>
+          <a href="groups.php"           class="btn btn-outline">Группы</a>
+          <a href="subjects.php"         class="btn btn-outline">Дисциплины</a>
+          <a href="semesters.php"        class="btn btn-outline">Семестры</a>
+          <a href="import_logs.php"      class="btn btn-outline">История импортов</a>
+          <a href="grade_sheets.php"     class="btn btn-outline">Оценки</a>
+          <a href="curricula.php"        class="btn btn-outline">Учебные планы (РУПл)</a>
+          <a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a>
         </div>
         <?php elseif ($isDir || $isTeacher): ?>
-        <a href="grade_sheets.php" class="btn btn-outline">Ведомости</a>
+        <div class="refs-nav">
+          <a href="grade_sheets.php"      class="btn btn-outline">Оценки</a>
+          <a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a>
+          <a href="curricula.php"         class="btn btn-outline">Учебные планы (РУПл)</a>
+        </div>
         <?php endif ?>
         <?php if (($isAdmin || $isDir || $isTeacher) && $total > 0): ?>
-        <a href="index.php?export=1<?= $filterGroup ? '&group_id='.$filterGroup : '' ?>" class="btn btn-success">
+        <a href="index.php?export=1&amp;<?= htmlspecialchars(http_build_query(array_filter([
+          'q' => $filterQ,
+          'group_id' => $filterGroup,
+          'specialty_id' => $filterSpecialty,
+          'year_started' => $filterYear,
+          'card_status' => $filterCard,
+        ], static fn($v) => $v !== null && $v !== ''))) ?>" class="btn btn-success">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Экспорт Excel
         </a>
@@ -496,23 +667,52 @@ $breadcrumbs     = [
       </div>
 
       <?php if ($isAdmin || $isDir || ($isTeacher && $allGroups)): ?>
-      <!-- Фильтр по группе -->
-      <form method="GET" action="index.php" class="filter-bar">
-        <label for="group_filter">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-2px"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-          Фильтр по группе:
-        </label>
-        <select name="group_id" id="group_filter" onchange="this.form.submit()">
-          <option value="">— Все группы —</option>
-          <?php foreach ($allGroups as $g): ?>
-          <option value="<?= $g['id'] ?>" <?= $filterGroup == $g['id'] ? 'selected' : '' ?>>
-            <?= htmlspecialchars($g['name']) ?>
-          </option>
-          <?php endforeach ?>
-        </select>
-        <?php if ($filterGroup): ?>
-        <a href="index.php" class="btn btn-outline" style="padding:0.3rem 0.75rem;font-size:0.8125rem">Сбросить</a>
-        <?php endif ?>
+      <form method="GET" action="index.php" class="criteria-card">
+        <div class="criteria-grid">
+          <div class="criteria-field">
+            <label for="students_q">Поиск по ФИО</label>
+            <input type="search" id="students_q" name="q" placeholder="Фамилия, ИИН, группа…" value="<?= htmlspecialchars($filterQ) ?>">
+          </div>
+          <div class="criteria-field">
+            <label for="group_filter">Группа</label>
+            <select name="group_id" id="group_filter">
+              <option value="">Все группы</option>
+              <?php foreach ($allGroups as $g): ?>
+              <option value="<?= $g['id'] ?>" <?= $filterGroup == $g['id'] ? 'selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option>
+              <?php endforeach ?>
+            </select>
+          </div>
+          <div class="criteria-field">
+            <label for="specialty_filter">Специальность</label>
+            <select name="specialty_id" id="specialty_filter">
+              <option value="">Все специальности</option>
+              <?php foreach ($allSpecialties as $sp): ?>
+              <option value="<?= (int)$sp['id'] ?>" <?= $filterSpecialty === (int)$sp['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sp['code'] . ' · ' . $sp['name_ru']) ?></option>
+              <?php endforeach ?>
+            </select>
+          </div>
+          <div class="criteria-field">
+            <label for="year_filter">Год набора</label>
+            <select name="year_started" id="year_filter">
+              <option value="">Все годы</option>
+              <?php foreach ($allYears as $year): ?>
+              <option value="<?= (int)$year ?>" <?= $filterYear === (int)$year ? 'selected' : '' ?>><?= (int)$year ?></option>
+              <?php endforeach ?>
+            </select>
+          </div>
+          <div class="criteria-field">
+            <label for="card_filter">Карточка</label>
+            <select name="card_status" id="card_filter">
+              <option value="">Все статусы</option>
+              <option value="filled" <?= $filterCard === 'filled' ? 'selected' : '' ?>>Карточка заполнена</option>
+              <option value="empty" <?= $filterCard === 'empty' ? 'selected' : '' ?>>Без карточки</option>
+            </select>
+          </div>
+          <div class="criteria-actions">
+            <button type="submit" class="btn btn-primary">Найти</button>
+            <a href="index.php" class="btn btn-outline">Сброс</a>
+          </div>
+        </div>
       </form>
       <?php endif ?>
 
@@ -523,10 +723,6 @@ $breadcrumbs     = [
         <div class="stat-item"><span class="stat-value"><?= $citizens ?></span><span class="stat-label">Гражданств</span></div>
       </div>
 
-      <div class="table-search">
-        <label for="tableSearch" style="font-size:.875rem;font-weight:500;color:var(--color-text-muted)">Поиск по таблице:</label>
-        <input type="search" id="tableSearch" placeholder="ФИО, ИИН, группа, специальность…" autocomplete="off">
-      </div>
 
       <div class="table-wrapper">
         <table class="data-table">
@@ -534,7 +730,7 @@ $breadcrumbs     = [
             <tr>
               <th>#</th><th>ID</th><th>Фамилия</th><th>Имя</th><th>Отчество</th>
               <th>Дата рождения</th><th>Группа</th><th>Специальность</th>
-              <th>ИИН</th><th>Гражданство</th><th>Национальность</th><?php if ($isAdmin): ?><th>Действия</th><?php endif ?>
+              <th>ИИН</th><th>Гражданство</th><th>Национальность</th><?php if ($isAdmin || $isTeacher): ?><th style="text-align:center">Действия</th><?php endif ?>
             </tr>
           </thead>
           <tbody id="tableBody">
@@ -551,12 +747,24 @@ $breadcrumbs     = [
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
-              <?php if ($isAdmin): ?>
+              <?php if ($isAdmin || $isTeacher): ?>
               <td onclick="event.stopPropagation()">
-                <div class="row-actions">
+                <div class="action-btns" style="justify-content:center">
+                  <?php if ($isTeacher): ?>
+                  <a href="about_student.php?id=<?= (int)$s['id'] ?>&edit=1"
+                     class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Редактировать">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </a>
+                  <?php endif ?>
+                  <?php if ($isAdmin): ?>
                   <a href="index.php?delete_student=<?= (int)$s['id'] ?><?= $filterGroup ? '&group_id=' . (int)$filterGroup : '' ?>"
-                     class="btn btn-danger" style="padding:.3rem .65rem;font-size:.8125rem"
-                     onclick="return confirm('Удалить студента и связанную личную карточку?')">Удалить</a>
+                     class="btn btn-danger" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Удалить"
+                     onclick="return confirm('Удалить студента и связанную личную карточку?')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                  </a>
+                  <?php endif ?>
                 </div>
               </td>
               <?php endif ?>
@@ -578,12 +786,24 @@ $breadcrumbs     = [
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
-              <?php if ($isAdmin): ?>
+              <?php if ($isAdmin || $isTeacher): ?>
               <td onclick="event.stopPropagation()">
-                <div class="row-actions">
+                <div class="action-btns" style="justify-content:center">
+                  <?php if ($isTeacher): ?>
+                  <a href="about_student.php?id=<?= (int)$s['id'] ?>&edit=1"
+                     class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Редактировать">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </a>
+                  <?php endif ?>
+                  <?php if ($isAdmin): ?>
                   <a href="index.php?delete_student=<?= (int)$s['id'] ?><?= $filterGroup ? '&group_id=' . (int)$filterGroup : '' ?>"
-                     class="btn btn-danger" style="padding:.3rem .65rem;font-size:.8125rem"
-                     onclick="return confirm('Удалить студента и связанную личную карточку?')">Удалить</a>
+                     class="btn btn-danger" style="padding:.3rem .6rem;font-size:.8125rem"
+                     title="Удалить"
+                     onclick="return confirm('Удалить студента и связанную личную карточку?')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                  </a>
+                  <?php endif ?>
                 </div>
               </td>
               <?php endif ?>
@@ -638,20 +858,6 @@ function toggleRows() {
     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> Подробнее — ещё ${remaining} записей`;
 }
 
-
-const tableSearch = document.getElementById('tableSearch');
-if (tableSearch) {
-  tableSearch.addEventListener('input', () => {
-    const q = tableSearch.value.trim().toLowerCase();
-    const hidden = document.getElementById('hiddenRows');
-    const btn = document.getElementById('showMoreBtn');
-    if (hidden) hidden.style.display = q ? '' : (expanded ? '' : 'none');
-    if (btn) btn.style.display = q ? 'none' : '';
-    document.querySelectorAll('.student-row').forEach(row => {
-      row.style.display = !q || row.textContent.toLowerCase().includes(q) ? '' : 'none';
-    });
-  });
-}
 
 <?php if ($isAdmin): ?>
 const zone      = document.getElementById('uploadZone');

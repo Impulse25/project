@@ -73,6 +73,18 @@ function edu_can_use_edu_module(): bool
     return in_array(edu_current_role(), ['admin', 'director', 'teacher'], true);
 }
 
+function edu_dashboard_url(?string $role = null): string
+{
+    $role = edu_normalize_role($role ?? edu_current_role());
+
+    return match ($role) {
+        'admin' => '../requests/admin_dashboard.php',
+        'director' => '../requests/director_dashboard.php',
+        'teacher' => '../requests/teacher_dashboard.php',
+        default => '../requests/teacher_dashboard.php',
+    };
+}
+
 /**
  * Группы, доступные пользователю в учебном модуле.
  * admin/director видят все группы.
