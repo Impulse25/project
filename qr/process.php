@@ -1,11 +1,13 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
-require_once __DIR__ . '/../config/db.php'; // timezone берём из db.php
+require_once __DIR__ . '/../config/db.php';
 
-$iin    = trim($_POST['iin'] ?? '');
+// ─────────────────────────────────────────────────────────────
+// 1. Базовые входные данные
+// ─────────────────────────────────────────────────────────────
+$iin    = trim($_POST['iin']    ?? '');
 $action = trim($_POST['action'] ?? '');
-$device = $_SERVER['REMOTE_ADDR'];
 
 if (!preg_match('/^\d{12}$/', $iin)) {
     echo json_encode(['success' => false, 'message' => 'Неверный формат ИИН']);
@@ -17,18 +19,126 @@ if (!in_array($action, ['entry', 'exit'])) {
     exit;
 }
 
-// ===== ЗАЩИТА: один IP не более 1 ИИН за последние 60 минут =====
+// ─────────────────────────────────────────────────────────────
+// 2. Сбор информации об устройстве
+// ─────────────────────────────────────────────────────────────
+
+// --- Сеть ---
+$device_ip = $_SERVER['HTTP_X_FORWARDED_FOR']
+           ?? $_SERVER['HTTP_X_REAL_IP']
+           ?? $_SERVER['REMOTE_ADDR']
+           ?? null;
+// Берём только первый IP если их несколько (proxy chain)
+if ($device_ip) {
+    $device_ip = trim(explode(',', $device_ip)[0]);
+}
+
+// --- User-Agent (браузер, ОС, тип устройства) ---
+$user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+
+function parseUserAgent(string $ua): array {
+    $browser_name    = 'Unknown';
+    $browser_version = '';
+    $os_name         = 'Unknown';
+    $device_type     = 'unknown';
+
+    // ── Браузер ──────────────────────────────────────────────
+    $browsers = [
+        'Edg'     => 'Edge',
+        'OPR'     => 'Opera',
+        'Opera'   => 'Opera',
+        'YaBrowser' => 'Yandex Browser',
+        'SamsungBrowser' => 'Samsung Browser',
+        'UCBrowser' => 'UC Browser',
+        'Chrome'  => 'Chrome',
+        'Safari'  => 'Safari',
+        'Firefox' => 'Firefox',
+        'MSIE'    => 'Internet Explorer',
+        'Trident' => 'Internet Explorer',
+    ];
+    foreach ($browsers as $pattern => $name) {
+        if (stripos($ua, $pattern) !== false) {
+            $browser_name = $name;
+            // Версия
+            if (preg_match('/' . preg_quote($pattern, '/') . '[\/\s]?([\d\.]+)/i', $ua, $m)) {
+                $browser_version = $m[1];
+            }
+            break;
+        }
+    }
+
+    // ── ОС ───────────────────────────────────────────────────
+    $systems = [
+        'Windows NT 10' => 'Windows 10/11',
+        'Windows NT 6.3'=> 'Windows 8.1',
+        'Windows NT 6.2'=> 'Windows 8',
+        'Windows NT 6.1'=> 'Windows 7',
+        'Windows'       => 'Windows',
+        'Mac OS X'      => 'macOS',
+        'Android'       => 'Android',
+        'iPhone'        => 'iOS (iPhone)',
+        'iPad'          => 'iOS (iPad)',
+        'Linux'         => 'Linux',
+        'CrOS'          => 'Chrome OS',
+    ];
+    foreach ($systems as $pattern => $name) {
+        if (stripos($ua, $pattern) !== false) {
+            $os_name = $name;
+            break;
+        }
+    }
+
+    // ── Тип устройства ───────────────────────────────────────
+    if (preg_match('/tablet|ipad|kindle|playbook|silk/i', $ua)) {
+        $device_type = 'tablet';
+    } elseif (preg_match('/mobile|android|iphone|ipod|blackberry|phone|opera mini/i', $ua)) {
+        $device_type = 'mobile';
+    } elseif ($ua) {
+        $device_type = 'desktop';
+    }
+
+    return compact('browser_name', 'browser_version', 'os_name', 'device_type');
+}
+
+$ua_parsed = parseUserAgent($user_agent);
+
+// --- Клиентские данные (из JS через POST) ---
+$screen_width  = filter_var($_POST['screen_w']   ?? null, FILTER_VALIDATE_INT) ?: null;
+$screen_height = filter_var($_POST['screen_h']   ?? null, FILTER_VALIDATE_INT) ?: null;
+$timezone      = substr(trim($_POST['timezone']  ?? ''), 0, 80) ?: null;
+$language      = substr(trim($_POST['language']  ?? ''), 0, 20) ?: null;
+$platform      = substr(trim($_POST['platform']  ?? ''), 0, 100) ?: null;
+
+// ─────────────────────────────────────────────────────────────
+// 3. Device Fingerprint — хэш без личных данных
+//    Комбинация: UA + разрешение + timezone + язык + платформа
+//    НЕ содержит IP → корректно работает при общем Wi-Fi
+// ─────────────────────────────────────────────────────────────
+$fingerprint_source = implode('|', [
+    $user_agent,
+    $screen_width  ?? '',
+    $screen_height ?? '',
+    $timezone      ?? '',
+    $language      ?? '',
+    $platform      ?? '',
+]);
+$device_fingerprint = hash('sha256', $fingerprint_source);
+
+// ─────────────────────────────────────────────────────────────
+// 4. ЗАЩИТА: один fingerprint — один студент за 60 минут
+//    (заменяет старую проверку по IP)
+// ─────────────────────────────────────────────────────────────
 if ($action === 'entry') {
-    $stmt_ip = $pdo->prepare("
-        SELECT COUNT(DISTINCT iin) AS cnt FROM attendance
-        WHERE device_ip = ?
+    $stmt_fp = $pdo->prepare("
+        SELECT COUNT(DISTINCT iin) AS cnt FROM qr_attendance
+        WHERE device_fingerprint = ?
           AND action = 'entry'
           AND TIMESTAMPDIFF(MINUTE, action_time, NOW()) <= 60
     ");
-    $stmt_ip->execute([$device]);
-    $ip_count = $stmt_ip->fetch()['cnt'];
+    $stmt_fp->execute([$device_fingerprint]);
+    $fp_count = $stmt_fp->fetch()['cnt'];
 
-    if ($ip_count >= 1) {
+    if ($fp_count >= 1) {
         echo json_encode([
             'success' => false,
             'message' => 'С этого устройства уже отмечен студент. Попробуйте через час.'
@@ -37,9 +147,11 @@ if ($action === 'entry') {
     }
 }
 
-// ===== ЗАЩИТА: логика вход/выход =====
+// ─────────────────────────────────────────────────────────────
+// 5. ЗАЩИТА: логика вход/выход для конкретного ИИН
+// ─────────────────────────────────────────────────────────────
 $stmt_last = $pdo->prepare("
-    SELECT action, action_time FROM attendance
+    SELECT action, action_time FROM qr_attendance
     WHERE iin = ?
     ORDER BY action_time DESC LIMIT 1
 ");
@@ -47,7 +159,6 @@ $stmt_last->execute([$iin]);
 $last = $stmt_last->fetch();
 
 if ($action === 'entry') {
-    // Нельзя войти если последнее действие — вход
     if ($last && $last['action'] === 'entry') {
         echo json_encode([
             'success' => false,
@@ -56,11 +167,8 @@ if ($action === 'entry') {
         exit;
     }
 
-    // Повторный вход только через час после выхода
     if ($last && $last['action'] === 'exit') {
-        $time_diff = $pdo->prepare("
-            SELECT TIMESTAMPDIFF(MINUTE, ?, NOW()) AS diff_min
-        ");
+        $time_diff = $pdo->prepare("SELECT TIMESTAMPDIFF(MINUTE, ?, NOW()) AS diff_min");
         $time_diff->execute([$last['action_time']]);
         $diff_min = $time_diff->fetch()['diff_min'];
 
@@ -76,7 +184,6 @@ if ($action === 'entry') {
 }
 
 if ($action === 'exit') {
-    // Нельзя выйти если нет ни одной записи или последнее действие — выход
     if (!$last || $last['action'] === 'exit') {
         echo json_encode([
             'success' => false,
@@ -86,7 +193,9 @@ if ($action === 'exit') {
     }
 }
 
-// ===== Ищем студента =====
+// ─────────────────────────────────────────────────────────────
+// 6. Поиск студента в БД
+// ─────────────────────────────────────────────────────────────
 $stmt = $pdo->prepare("
     SELECT s.surname, s.name, s.patronymic, s.group_id, g.name AS group_name
     FROM edu_students s
@@ -101,29 +210,56 @@ if (!$student) {
     exit;
 }
 
-// ===== Записываем событие =====
-$stmt3 = $pdo->prepare("
-    INSERT INTO attendance (iin, surname, name, patronymic, group_id, action, device_ip)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+// ─────────────────────────────────────────────────────────────
+// 7. Запись события в qr_attendance
+// ─────────────────────────────────────────────────────────────
+$stmt_ins = $pdo->prepare("
+    INSERT INTO qr_attendance
+      (iin, surname, name, patronymic, group_id, action,
+       device_ip, user_agent, browser_name, browser_version,
+       os_name, device_type,
+       screen_width, screen_height, timezone, language, platform,
+       device_fingerprint)
+    VALUES
+      (?, ?, ?, ?, ?, ?,
+       ?, ?, ?, ?,
+       ?, ?,
+       ?, ?, ?, ?, ?,
+       ?)
 ");
-$stmt3->execute([
+$stmt_ins->execute([
     $iin,
     $student['surname'],
     $student['name'],
     $student['patronymic'],
     $student['group_id'],
     $action,
-    $device
+
+    $device_ip,
+    $user_agent,
+    $ua_parsed['browser_name'],
+    $ua_parsed['browser_version'],
+    $ua_parsed['os_name'],
+    $ua_parsed['device_type'],
+
+    $screen_width,
+    $screen_height,
+    $timezone,
+    $language,
+    $platform,
+
+    $device_fingerprint,
 ]);
 
-// Время из MySQL (уже правильное через SET time_zone в db.php)
+// ─────────────────────────────────────────────────────────────
+// 8. Ответ
+// ─────────────────────────────────────────────────────────────
 $time_row = $pdo->query("
     SELECT DATE_FORMAT(NOW(), '%H:%i') AS t,
            DATE_FORMAT(NOW(), '%d.%m.%Y') AS d
 ")->fetch();
 
-// ===== $full была не определена — исправлено =====
-$full = $student['surname'] . ' ' . $student['name'] . ' ' . $student['patronymic'];
+$full = trim($student['surname'] . ' ' . $student['name'] . ' ' . $student['patronymic']);
 
 echo json_encode([
     'success'    => true,

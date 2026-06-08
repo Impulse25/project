@@ -211,6 +211,11 @@ function render() {
       var actionBadge = r.action === 'entry'
         ? '<span class="badge badge-entry">↗ Вход</span>'
         : '<span class="badge badge-exit">↙ Выход</span>';
+      // Тип устройства
+      var typeEmoji = { desktop: '🖥️', mobile: '📱', tablet: '📟', unknown: '❓' };
+      var typeLabel = typeEmoji[r.device_type] || '❓';
+      // Браузер + версия
+      var browserStr = r.browser_name ? r.browser_name + (r.browser_version ? ' ' + r.browser_version.split('.')[0] : '') : '—';
       return '<tr>'
         + '<td>' + (r.id ?? '—') + '</td>'
         + '<td class="cell-iin">' + (r.iin ?? '—') + '</td>'
@@ -221,6 +226,9 @@ function render() {
         + '<td>' + actionBadge + '</td>'
         + '<td>' + (r.action_time ?? '—') + '</td>'
         + '<td class="cell-ip">' + (r.device_ip ?? '—') + '</td>'
+        + '<td>' + browserStr + '</td>'
+        + '<td>' + (r.os_name ?? '—') + '</td>'
+        + '<td title="' + (r.device_type ?? '') + '">' + typeLabel + '</td>'
         + '</tr>';
     }).join('');
   }
@@ -259,8 +267,8 @@ function render() {
 
 /* ── Экспорт CSV ── */
 function exportCSV() {
-  var cols  = ['id','iin','surname','name','patronymic','group_id','action','action_time','device_ip'];
-  var heads = ['ID','ИИН','Фамилия','Имя','Отчество','Группа','Действие','Время','IP'];
+  var cols  = ['id','iin','surname','name','patronymic','group_id','action','action_time','device_ip','browser_name','browser_version','os_name','device_type'];
+  var heads = ['ID','ИИН','Фамилия','Имя','Отчество','Группа','Действие','Время','IP','Браузер','Версия браузера','ОС','Тип устройства'];
   var rows  = filtered.map(function (r) {
     return cols.map(function (c) {
       var v = c === 'group_id' ? getGroupName(r[c])
@@ -282,8 +290,8 @@ function exportExcel() {
     alert('Библиотека XLSX не загружена. Проверь подключение к интернету или CDN.');
     return;
   }
-  var cols  = ['id','iin','surname','name','patronymic','group_id','action','action_time','device_ip'];
-  var heads = ['ID','ИИН','Фамилия','Имя','Отчество','Группа','Действие','Время','IP-адрес'];
+  var cols  = ['id','iin','surname','name','patronymic','group_id','action','action_time','device_ip','browser_name','browser_version','os_name','device_type'];
+  var heads = ['ID','ИИН','Фамилия','Имя','Отчество','Группа','Действие','Время','IP-адрес','Браузер','Версия браузера','ОС','Тип устройства'];
   var wsData = [heads];
   filtered.forEach(function (r) {
     wsData.push(cols.map(function (c) {
@@ -294,7 +302,7 @@ function exportExcel() {
   });
   var wb = XLSX.utils.book_new();
   var ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws['!cols'] = [{wch:6},{wch:14},{wch:18},{wch:14},{wch:18},{wch:12},{wch:10},{wch:20},{wch:16}];
+  ws['!cols'] = [{wch:6},{wch:14},{wch:18},{wch:14},{wch:18},{wch:12},{wch:10},{wch:20},{wch:16},{wch:16},{wch:14},{wch:18},{wch:12}];
   XLSX.utils.book_append_sheet(wb, ws, 'Посещаемость');
   XLSX.writeFile(wb, 'attendance_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }

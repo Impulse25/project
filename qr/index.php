@@ -11,11 +11,15 @@ $initials   = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), 
 // ── БД и данные (подключение точно как в твоём process.php) ─────────────────
 require_once __DIR__ . '/../config/db.php';
 
-// Журнал посещаемости — таблица attendance (как в process.php)
+// Журнал посещаемости — таблица qr_attendance
 $stmt = $pdo->query("
     SELECT a.id, a.iin, a.surname, a.name, a.patronymic,
-           a.group_id, a.action, a.action_time, a.device_ip
-    FROM attendance a
+           a.group_id, a.action, a.action_time,
+           a.device_ip, a.browser_name, a.browser_version,
+           a.os_name, a.device_type,
+           a.screen_width, a.screen_height,
+           a.timezone, a.language, a.platform
+    FROM qr_attendance a
     ORDER BY a.action_time DESC
 ");
 $attendanceRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -160,15 +164,18 @@ $breadcrumbLink    = '/';
         <table>
           <thead>
             <tr>
-              <th onclick="sortBy('id')"          id="th-id">ID <span>↕</span></th>
-              <th onclick="sortBy('iin')"         id="th-iin">ИИН <span>↕</span></th>
-              <th onclick="sortBy('surname')"     id="th-surname">Фамилия <span>↕</span></th>
-              <th onclick="sortBy('name')"        id="th-name">Имя <span>↕</span></th>
-              <th onclick="sortBy('patronymic')"  id="th-patronymic">Отчество <span>↕</span></th>
-              <th onclick="sortBy('group_id')"    id="th-group_id">Группа <span>↕</span></th>
-              <th onclick="sortBy('action')"      id="th-action">Действие <span>↕</span></th>
-              <th onclick="sortBy('action_time')" id="th-action_time">Время <span>↕</span></th>
-              <th onclick="sortBy('device_ip')"   id="th-device_ip">IP-адрес <span>↕</span></th>
+              <th onclick="sortBy('id')"            id="th-id">ID <span>↕</span></th>
+              <th onclick="sortBy('iin')"           id="th-iin">ИИН <span>↕</span></th>
+              <th onclick="sortBy('surname')"       id="th-surname">Фамилия <span>↕</span></th>
+              <th onclick="sortBy('name')"          id="th-name">Имя <span>↕</span></th>
+              <th onclick="sortBy('patronymic')"    id="th-patronymic">Отчество <span>↕</span></th>
+              <th onclick="sortBy('group_id')"      id="th-group_id">Группа <span>↕</span></th>
+              <th onclick="sortBy('action')"        id="th-action">Действие <span>↕</span></th>
+              <th onclick="sortBy('action_time')"   id="th-action_time">Время <span>↕</span></th>
+              <th onclick="sortBy('device_ip')"     id="th-device_ip">IP-адрес <span>↕</span></th>
+              <th onclick="sortBy('browser_name')"  id="th-browser_name">Браузер <span>↕</span></th>
+              <th onclick="sortBy('os_name')"       id="th-os_name">ОС <span>↕</span></th>
+              <th onclick="sortBy('device_type')"   id="th-device_type">Тип <span>↕</span></th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>

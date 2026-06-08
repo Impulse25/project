@@ -23,6 +23,21 @@ function updateIcon(theme) {
   }
 }
 
+/* ── Сбор информации об устройстве (для fingerprint на сервере) ── */
+function getDeviceInfo() {
+  var nav = window.navigator || {};
+  var scr = window.screen   || {};
+  return {
+    screen_w : scr.width        || '',
+    screen_h : scr.height       || '',
+    timezone : (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+               ? Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+               : '',
+    language : nav.language     || nav.userLanguage || '',
+    platform : nav.platform     || '',
+  };
+}
+
 /* ── Core logic ── */
 function sendData() {
   const iin    = document.getElementById('iin').value.trim();
@@ -39,10 +54,23 @@ function sendData() {
     return;
   }
 
+  // Собираем данные устройства
+  const dev = getDeviceInfo();
+
+  const body = new URLSearchParams({
+    iin:      iin,
+    action:   action,
+    screen_w: dev.screen_w,
+    screen_h: dev.screen_h,
+    timezone: dev.timezone,
+    language: dev.language,
+    platform: dev.platform,
+  }).toString();
+
   fetch('process.php', {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'iin=' + encodeURIComponent(iin) + '&action=' + action
+    body:    body,
   })
     .then(res => res.json())
     .then(data => data.success ? showSuccess(data, action) : showError(data.message))
