@@ -8,8 +8,12 @@ $userId  = edu_current_user_id();
 $isAdmin = edu_is_admin();
 $isDir   = edu_is_director();
 $isTeacher = edu_is_teacher();
+$canEduViewGrades = edu_can($pdo, 'can_edu_view_grades');
+$canEduGrades = edu_can($pdo, 'can_edu_grades');
+$canEduGenerateSheets = edu_can($pdo, 'can_edu_generate_sheets');
 
-if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
+
+if (!in_array($role, ['admin', 'teacher', 'director'], true) || !$canEduViewGrades) {
     header('Location: index.php');
     exit;
 }
@@ -64,7 +68,7 @@ if (!$isAdmin && !$isDir && !$isCurator) {
 }
 
 // Можно редактировать только если draft и мы куратор/владелец или admin
-$canEdit = in_array($sheet['status'], ['draft', 'rejected'], true) && ($isAdmin || ($isTeacher && $isCurator));
+$canEdit = $canEduGrades && in_array($sheet['status'], ['draft', 'rejected'], true) && ($isAdmin || ($isTeacher && $isCurator));
 $canReview = ($isAdmin || $isDir) && in_array($sheet['status'], ['submitted', 'approved'], true);
 
 $message = ''; $messageType = '';
@@ -207,10 +211,12 @@ $breadcrumbs = [
         <p class="page-subtitle"><?= $TYPE_LABELS[$sheet['type']] ?> · <?= !empty($sheet['curriculum_semester']) ? ((int)$sheet['curriculum_semester'] . ' семестр РУПл') : ($sheet['year_start'].'/'.$sheet['year_end'].' · '.$sheet['semester_num'].' семестр') ?></p>
       </div>
       <div class="page-actions">
+        <?php if ($canEduGenerateSheets): ?>
         <a href="export_grade_sheet.php?sheet_id=<?= $sheetId ?>" class="btn btn-outline">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Экспорт ведомости
         </a>
+        <?php endif ?>
         <?php if ($canReview && $sheet['status'] === 'submitted'): ?>
         <a href="grade_sheets.php?id=<?= $sheetId ?>&status=approved"
            class="btn btn-success"

@@ -132,6 +132,121 @@ function edu_user_can_access_group(PDO $pdo, int $groupId, ?int $userId = null, 
     return in_array($groupId, edu_accessible_group_ids($pdo, $userId, $role), true);
 }
 
+
+/**
+ * Список отдельных прав учебного модуля, которые настраиваются в /requests/edit_role.php.
+ */
+function edu_permission_keys(): array
+{
+    return [
+        'can_edu_view_grades',
+        'can_edu_grades',
+        'can_edu_generate_sheets',
+        'can_edu_export_students',
+        'can_edu_edit_students',
+        'can_edu_student_card',
+        'can_edu_diploma_book',
+    ];
+}
+
+/**
+ * Поведение по умолчанию, если миграция с колонками прав ещё не применена.
+ * admin принудительно сохраняет полный доступ, чтобы не заблокировать админку.
+ */
+function edu_default_permissions_for_role(?string $role = null): array
+{
+    $role = edu_normalize_role($role ?? edu_current_role());
+    $defaults = array_fill_keys(edu_permission_keys(), false);
+
+    if ($role === 'admin' || $role === 'teacher') {
+        return array_fill_keys(edu_permission_keys(), true);
+    }
+
+    if ($role === 'director') {
+        $defaults['can_edu_view_grades'] = true;
+        $defaults['can_edu_grades'] = false;
+        $defaults['can_edu_generate_sheets'] = true;
+        $defaults['can_edu_export_students'] = true;
+        $defaults['can_edu_student_card'] = true;
+        $defaults['can_edu_diploma_book'] = true;
+    }
+
+    return $defaults;
+}
+
+function edu_role_permissions(PDO $pdo, ?string $role = null): array
+{
+    static $cache = [];
+
+    $role = edu_normalize_role($role ?? edu_current_role());
+    if (isset($cache[$role])) {
+        return $cache[$role];
+    }
+
+    $permissions = edu_default_permissions_for_role($role);
+
+    // Администратор не должен случайно потерять доступ к учебному модулю.
+    if ($role === 'admin') {
+        return $cache[$role] = $permissions;
+    }
+
+    try {
+        $columns = array_map(
+            static fn($r) => $r['Field'],
+            $pdo->query('SHOW COLUMNS FROM roles')->fetchAll(PDO::FETCH_ASSOC)
+        );
+        $availableKeys = array_values(array_intersect(edu_permission_keys(), $columns));
+        if (!$availableKeys) {
+            return $cache[$role] = $permissions;
+        }
+
+        $select = implode(', ', array_map(static fn($c) => '`' . str_replace('`', '``', $c) . '`', $availableKeys));
+        $stmt = $pdo->prepare("SELECT $select FROM roles WHERE role_code = ? LIMIT 1");
+        $stmt->execute([$role]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return $cache[$role] = $permissions;
+        }
+
+        foreach ($availableKeys as $key) {
+            $permissions[$key] = ((int)($row[$key] ?? 0) === 1);
+        }
+
+        // Обратная совместимость: если новая колонка просмотра ещё не добавлена,
+        // роль с правом выставления оценок должна хотя бы открывать страницу оценок.
+        if (!in_array('can_edu_view_grades', $availableKeys, true) && !empty($permissions['can_edu_grades'])) {
+            $permissions['can_edu_view_grades'] = true;
+        }
+    } catch (Throwable $e) {
+        return $cache[$role] = $permissions;
+    }
+
+    return $cache[$role] = $permissions;
+}
+
+function edu_can(PDO $pdo, string $permission, ?string $role = null): bool
+{
+    if (!in_array($permission, edu_permission_keys(), true)) {
+        return false;
+    }
+
+    $role = edu_normalize_role($role ?? edu_current_role());
+    if ($role === 'admin') {
+        return true;
+    }
+
+    $permissions = edu_role_permissions($pdo, $role);
+    return !empty($permissions[$permission]);
+}
+
+function edu_require_permission(PDO $pdo, string $permission, string $redirectUrl = 'index.php'): void
+{
+    if (!edu_can($pdo, $permission)) {
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+}
+
 // Если логин-код не положил role в сессию, берём роль из users по user_id.
 if (empty($_SESSION['role']) && empty($_SESSION['user_role']) && empty($_SESSION['role_code'])) {
     $dbPath = __DIR__ . '/../../config/db.php';

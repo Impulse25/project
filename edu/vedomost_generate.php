@@ -27,6 +27,7 @@ if (!in_array($role, ['admin', 'director', 'teacher'], true)) {
     header('Location: index.php');
     exit;
 }
+edu_require_permission($pdo, 'can_edu_generate_sheets', 'index.php');
 
 $message = '';
 $msgType = '';
@@ -1237,6 +1238,208 @@ function edu_build_semester_sheet(Spreadsheet $spreadsheet, PDO $pdo, array $gro
     $sch->setCellValue('A' . $row, 'Руководитель группы:                                           ____________________');
     $sch->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
 }
+
+function edu_all_semesters_period_label(array $group): string
+{
+    $enrollment = (int)($group['enrollment_year'] ?? $group['year_started'] ?? date('Y'));
+    if ($enrollment < 2000 || $enrollment > 2099) $enrollment = (int)date('Y');
+    return $enrollment . '-' . ($enrollment + 4);
+}
+
+function edu_collect_all_semester_entries(PDO $pdo, int $curriculumId): array
+{
+    $entries = [];
+    for ($semNum = 1; $semNum <= 8; $semNum++) {
+        $modules = edu_load_curriculum_modules_for_semester($pdo, $curriculumId, $semNum);
+        $modules = edu_order_modules_for_summary($modules, $semNum);
+        foreach ($modules as $module) {
+            $entries[] = [
+                'semester' => $semNum,
+                'module'   => $module,
+            ];
+        }
+    }
+    return $entries;
+}
+
+function edu_load_all_semester_grades(PDO $pdo, int $groupId, array $entries): array
+{
+    $moduleIds = [];
+    foreach ($entries as $entry) {
+        $moduleId = (int)($entry['module']['id'] ?? 0);
+        if ($moduleId > 0) $moduleIds[$moduleId] = $moduleId;
+    }
+    $moduleIds = array_values($moduleIds);
+    if (!$moduleIds) return [];
+
+    $in = implode(',', array_fill(0, count($moduleIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT
+            eg.id AS grade_id,
+            gs.id AS sheet_id,
+            gs.type,
+            COALESCE(eg.curriculum_module_id, gs.curriculum_module_id) AS curriculum_module_id,
+            COALESCE(eg.curriculum_semester, gs.curriculum_semester) AS linked_semester,
+            eg.student_id,
+            eg.grade,
+            eg.passed,
+            eg.absent,
+            eg.created_at AS grade_created_at,
+            eg.updated_at AS grade_updated_at,
+            gs.created_at AS sheet_created_at,
+            gs.updated_at AS sheet_updated_at
+        FROM edu_grades eg
+        JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id
+        JOIN edu_students st ON st.id = eg.student_id
+        WHERE gs.group_id = ?
+          AND st.group_id = ?
+          AND COALESCE(eg.curriculum_module_id, gs.curriculum_module_id) IN ($in)
+          AND COALESCE(eg.curriculum_semester, gs.curriculum_semester) BETWEEN 1 AND 8
+          AND (gs.status IS NULL OR gs.status <> 'rejected')
+    ");
+    $stmt->execute(array_merge([$groupId, $groupId], $moduleIds));
+
+    $grades = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $semester = (int)($row['linked_semester'] ?? 0);
+        $moduleId = (int)($row['curriculum_module_id'] ?? 0);
+        $studentId = (int)($row['student_id'] ?? 0);
+        if ($semester < 1 || $semester > 8 || $moduleId <= 0 || $studentId <= 0) continue;
+        $grades[$semester][$moduleId][$studentId] = edu_vedomost_choose_grade($grades[$semester][$moduleId][$studentId] ?? null, $row, $semester);
+    }
+
+    return $grades;
+}
+
+function edu_write_all_semesters_headers(Worksheet $sheet, array $group, array $entries): array
+{
+    $entryCount = count($entries);
+    $lastColIdx = 2 + (max(1, $entryCount) * 2) + 1;
+    $lastCol = Coordinate::stringFromColumnIndex($lastColIdx);
+    $lastModuleCol = Coordinate::stringFromColumnIndex($lastColIdx - 1);
+
+    foreach ($sheet->getMergeCells() as $mergeRange) {
+        $sheet->unmergeCells($mergeRange);
+    }
+
+    $sheet->getStyle('A1:' . $lastCol . '180')->getFont()->setName('Times New Roman')->setSize(10);
+    $sheet->getStyle('A1:' . $lastCol . '180')->getAlignment()->setWrapText(true)->setVertical(Alignment::VERTICAL_CENTER);
+
+    $sheet->mergeCells('A1:' . $lastCol . '1');
+    $sheet->mergeCells('A2:' . $lastCol . '2');
+    $sheet->setCellValue('A1', 'СВОДНАЯ ВЕДОМОСТЬ УСПЕВАЕМОСТИ');
+    $sheet->setCellValue('A2', 'группа       ' . ($group['name'] ?? '') . '        за 1-8 семестры        период обучения ' . edu_all_semesters_period_label($group));
+    $sheet->getStyle('A1:A2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+    $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(12);
+
+    $sheet->mergeCells('A3:A5');
+    $sheet->setCellValue('A3', '№');
+    $sheet->mergeCells('B3:B5');
+    $sheet->setCellValue('B3', 'Ф.И.О.');
+    $sheet->mergeCells('C3:' . $lastModuleCol . '3');
+    $sheet->setCellValue('C3', 'Дисциплины за 1-8 семестры');
+    $sheet->mergeCells($lastCol . '3:' . $lastCol . '5');
+    $sheet->setCellValue($lastCol . '3', 'Примечание');
+
+    if ($entryCount > 0) {
+        $col = 3;
+        $semesterStartCol = 3;
+        $currentSemester = null;
+
+        foreach ($entries as $entry) {
+            $semester = (int)($entry['semester'] ?? 0);
+            $module = $entry['module'] ?? [];
+
+            if ($currentSemester === null) {
+                $currentSemester = $semester;
+                $semesterStartCol = $col;
+            } elseif ($semester !== $currentSemester) {
+                $startCol = Coordinate::stringFromColumnIndex($semesterStartCol);
+                $endCol = Coordinate::stringFromColumnIndex($col - 1);
+                $sheet->mergeCells($startCol . '4:' . $endCol . '4');
+                $sheet->setCellValue($startCol . '4', $currentSemester . ' семестр');
+                $currentSemester = $semester;
+                $semesterStartCol = $col;
+            }
+
+            $scoreCol = Coordinate::stringFromColumnIndex($col);
+            $letterCol = Coordinate::stringFromColumnIndex($col + 1);
+            $sheet->mergeCells($scoreCol . '5:' . $letterCol . '5');
+            $sheet->setCellValue($scoreCol . '5', edu_summary_module_caption($module));
+            $col += 2;
+        }
+
+        if ($currentSemester !== null) {
+            $startCol = Coordinate::stringFromColumnIndex($semesterStartCol);
+            $endCol = Coordinate::stringFromColumnIndex($col - 1);
+            $sheet->mergeCells($startCol . '4:' . $endCol . '4');
+            $sheet->setCellValue($startCol . '4', $currentSemester . ' семестр');
+        }
+    }
+
+    $sheet->getStyle('A3:' . $lastCol . '5')->getFont()->setBold(true);
+    edu_style_summary_table($sheet, 'A3:' . $lastCol . '5');
+    $sheet->getStyle('A3:' . $lastCol . '5')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+    $sheet->getColumnDimension('A')->setWidth(3.2);
+    $sheet->getColumnDimension('B')->setWidth(21.5);
+    for ($i = 3; $i <= $lastColIdx - 1; $i++) {
+        $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setWidth(5.35);
+    }
+    $sheet->getColumnDimension($lastCol)->setWidth(8.0);
+
+    $sheet->getRowDimension(3)->setRowHeight(18);
+    $sheet->getRowDimension(4)->setRowHeight(24);
+    $sheet->getRowDimension(5)->setRowHeight(92);
+    $sheet->freezePane('C6');
+    edu_apply_summary_page_setup($sheet);
+    $sheet->freezePane('C6');
+
+    return [6, $lastColIdx, $lastCol];
+}
+
+function edu_send_all_semesters_workbook(PDO $pdo, array $group): void
+{
+    $studentsStmt = $pdo->prepare("SELECT * FROM edu_students WHERE group_id = ? ORDER BY surname, name, patronymic");
+    $studentsStmt->execute([(int)$group['id']]);
+    $students = $studentsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$students) throw new RuntimeException('В выбранной группе нет студентов.');
+
+    $entries = edu_collect_all_semester_entries($pdo, (int)$group['curriculum_id']);
+    if (!$entries) throw new RuntimeException('В привязанном РУПл не найдены дисциплины за 1-8 семестры.');
+
+    $grades = edu_load_all_semester_grades($pdo, (int)$group['id'], $entries);
+
+    $spreadsheet = new Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('1-8 семестры');
+
+    [$firstDataRow, $lastColIdx, $lastCol] = edu_write_all_semesters_headers($sheet, $group, $entries);
+
+    $rows = [];
+    foreach ($students as $idx => $student) {
+        $line = [$idx + 1, edu_full_name($student)];
+        foreach ($entries as $entry) {
+            $semNum = (int)$entry['semester'];
+            $module = $entry['module'];
+            $moduleId = (int)($module['id'] ?? 0);
+            $type = edu_module_grade_type($module, $semNum);
+            $res = edu_summary_grade_result($grades[$semNum][$moduleId][(int)$student['id']] ?? null, $type);
+            $line[] = $res['score'];
+            $line[] = $res['letter'];
+        }
+        $line[] = '';
+        $rows[] = $line;
+    }
+
+    $footer = 'Зам. директора по УР: ____________________        Зав. отделением: ____________________        Руководитель группы: ____________________';
+    edu_write_semester_rows($sheet, $rows, $firstDataRow, $lastColIdx, $lastCol, $footer);
+
+    $tmp = tempnam(sys_get_temp_dir(), 'rupl_vedomost_all_') . '.xlsx';
+    (new Xlsx($spreadsheet))->save($tmp);
+    $filename = edu_safe_filename('vedomost_' . ($group['name'] ?? 'group') . '_1-8_семестры_один_лист') . '.xlsx';
+    edu_send_file($tmp, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+}
 function edu_send_semester_workbook(PDO $pdo, array $group, array $semesters, bool $includeScholarshipSheets = true): void
 {
     $studentsStmt = $pdo->prepare("SELECT * FROM edu_students WHERE group_id = ? ORDER BY surname, name, patronymic");
@@ -1319,8 +1522,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate'])) {
             $msgType = 'error';
         } elseif ($generationMode === 'semester' || $generationMode === 'all') {
             try {
-                $semestersToExport = $generationMode === 'all' ? range(1, 8) : [$semNum];
-                edu_send_semester_workbook($pdo, $group, $semestersToExport, $generationMode !== 'all');
+                if ($generationMode === 'all') {
+                    edu_send_all_semesters_workbook($pdo, $group);
+                } else {
+                    edu_send_semester_workbook($pdo, $group, [$semNum], true);
+                }
             } catch (Throwable $e) {
                 $message = 'Ошибка формирования сводной ведомости: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 $msgType = 'error';
@@ -1603,7 +1809,7 @@ $breadcrumbs = [
               </label>
               <label class="generation-option">
                 <input type="radio" name="generation_mode" value="all" <?= $generationMode === 'all' ? 'checked' : '' ?>>
-                <span><span class="generation-title">Все 8 семестров</span><span class="generation-note">XLSX по каждому семестру, без листов стипендии</span></span>
+                <span><span class="generation-title">Все 8 семестров</span><span class="generation-note">XLSX: все дисциплины 1-8 семестров на одном листе</span></span>
               </label>
             </div>
           </div>

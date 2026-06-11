@@ -20,6 +20,7 @@ if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: grade_sheets.php');
     exit;
 }
+edu_require_permission($pdo, 'can_edu_generate_sheets', 'grade_sheets.php');
 
 $groupId = (int)($_GET['group_id'] ?? 0);
 $semesterId = (int)($_GET['semester_id'] ?? 0);

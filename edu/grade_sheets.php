@@ -8,10 +8,13 @@ $userId    = edu_current_user_id();
 $isAdmin   = edu_is_admin();
 $isDir     = edu_is_director();
 $isTeacher = edu_is_teacher();
-$canEditGrades = $isAdmin || $isTeacher;
-$canViewGradesOnly = $isDir && !$canEditGrades;
+$canEduViewGrades = edu_can($pdo, 'can_edu_view_grades');
+$canEduGrades     = edu_can($pdo, 'can_edu_grades');
 
-if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
+$canEditGrades = $canEduGrades && ($isAdmin || $isTeacher);
+$canViewGradesOnly = $canEduViewGrades && !$canEditGrades;
+
+if (!in_array($role, ['admin', 'teacher', 'director'], true) || !$canEduViewGrades) {
     header('Location: index.php');
     exit;
 }
@@ -476,7 +479,7 @@ if (isset($_GET['delete'])) {
     $row = $pdo->prepare('SELECT * FROM edu_grade_sheets WHERE id = ?');
     $row->execute([$id]);
     $row = $row->fetch(PDO::FETCH_ASSOC);
-    if ($row && ($isAdmin || ((int)$row['teacher_id'] === $userId && ($row['status'] ?? '') === 'draft'))) {
+    if ($row && $canEditGrades && ($isAdmin || ((int)$row['teacher_id'] === $userId && ($row['status'] ?? '') === 'draft'))) {
         $pdo->prepare('DELETE FROM edu_grades WHERE grade_sheet_id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM edu_grade_sheets WHERE id = ?')->execute([$id]);
         $message = 'Запись оценок удалена.';

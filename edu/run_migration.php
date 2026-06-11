@@ -96,6 +96,9 @@ foreach ($files as $file) {
 
 function _execute_sql_statement(PDO $pdo, string $stmt): void
 {
+    $stmt = trim($stmt);
+    if ($stmt === '') return;
+
     $q = $pdo->prepare($stmt);
     $q->execute();
 
@@ -115,7 +118,7 @@ function _execute_sql_statement(PDO $pdo, string $stmt): void
 function _strip_leading_sql_comments(string $stmt): string
 {
     $lines = preg_split('/\R/', $stmt);
-    while ($lines && (trim($lines[0]) === '' || str_starts_with(ltrim($lines[0]), '--'))) {
+    while ($lines && (trim($lines[0]) === '' || str_starts_with(ltrim($lines[0]), '--') || str_starts_with(ltrim($lines[0]), '#'))) {
         array_shift($lines);
     }
     return trim(implode("\n", $lines));
@@ -123,32 +126,56 @@ function _strip_leading_sql_comments(string $stmt): string
 
 function _split_sql(string $sql): array
 {
-    $lines     = explode("\n", $sql);
-    $stmts     = [];
-    $current   = '';
-    $delimiter = ';';
-
-    foreach ($lines as $line) {
-        $trimmed = trim($line);
-        if (preg_match('/^DELIMITER\s+(\S+)/i', $trimmed, $m)) {
-            $delimiter = $m[1];
+    // Убираем построчные SQL-комментарии до разделения запросов.
+    // Старый разборщик мог отправить строку комментария в MySQL как отдельный запрос.
+    $cleanLines = [];
+    foreach (preg_split('/\R/', $sql) as $line) {
+        $trimmed = ltrim($line);
+        if (str_starts_with($trimmed, '--') || str_starts_with($trimmed, '#')) {
             continue;
         }
-        $current .= $line . "\n";
-        if ($delimiter === ';') {
-            if (str_ends_with(rtrim($line), ';')) {
-                $stmts[] = trim($current);
-                $current = '';
+        $cleanLines[] = $line;
+    }
+    $sql = implode("\n", $cleanLines);
+
+    $statements = [];
+    $current = '';
+    $len = strlen($sql);
+    $quote = null;
+    $escape = false;
+
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $sql[$i];
+        $current .= $ch;
+
+        if ($escape) {
+            $escape = false;
+            continue;
+        }
+
+        if ($quote !== null) {
+            if ($ch === '\\') {
+                $escape = true;
+            } elseif ($ch === $quote) {
+                $quote = null;
             }
-        } else {
-            if (str_contains($line, $delimiter)) {
-                $parts   = explode($delimiter, $current, 2);
-                $stmts[] = trim($parts[0]);
-                $current = '';
-                $delimiter = ';';
-            }
+            continue;
+        }
+
+        if ($ch === "'" || $ch === '"' || $ch === '`') {
+            $quote = $ch;
+            continue;
+        }
+
+        if ($ch === ';') {
+            $stmt = trim(substr($current, 0, -1));
+            if ($stmt !== '') $statements[] = $stmt;
+            $current = '';
         }
     }
-    if (trim($current) !== '') $stmts[] = trim($current);
-    return $stmts;
+
+    $tail = trim($current);
+    if ($tail !== '') $statements[] = $tail;
+
+    return $statements;
 }

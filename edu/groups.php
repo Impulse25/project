@@ -11,6 +11,7 @@ $message     = '';
 $messageType = '';
 $filterQ = trim((string)($_GET['q'] ?? ''));
 $filterSpecialty = (isset($_GET['specialty_id']) && $_GET['specialty_id'] !== '') ? (int)$_GET['specialty_id'] : null;
+$filterDepartment = (isset($_GET['department_id']) && $_GET['department_id'] !== '') ? (int)$_GET['department_id'] : null;
 $filterCourse = (isset($_GET['course']) && $_GET['course'] !== '') ? (int)$_GET['course'] : null;
 $filterYear = (isset($_GET['year_started']) && $_GET['year_started'] !== '') ? (int)$_GET['year_started'] : null;
 $filterCurriculum = in_array(($_GET['curriculum_status'] ?? ''), ['linked', 'empty'], true) ? $_GET['curriculum_status'] : '';
@@ -30,8 +31,9 @@ if (isset($_GET['delete'])) {
 // ── Создание / редактирование ──────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $name         = trim($_POST['name']         ?? '');
-    $specialty_id = (int)($_POST['specialty_id'] ?? 0);
-    $course       = (int)($_POST['course']       ?? 0);
+    $specialty_id   = (int)($_POST['specialty_id'] ?? 0);
+    $department_id = ($_POST['department_id'] ?? '') !== '' ? (int)$_POST['department_id'] : null;
+    $course         = (int)($_POST['course']       ?? 0);
     $curator_id   = trim($_POST['curator_id']    ?? '') !== '' ? (int)$_POST['curator_id'] : null;
     $curator_name = trim($_POST['curator_name'] ?? '');
     if ($curator_id === null && $curator_name !== '') {
@@ -67,13 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } else {
         try {
             if ($_POST['action'] === 'create') {
-                $pdo->prepare("INSERT INTO edu_groups (name, specialty_id, course, curator_id, year_started, curriculum_id) VALUES (?,?,?,?,?,?)")
-                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started, $curriculum_id]);
+                $pdo->prepare("INSERT INTO edu_groups (name, specialty_id, department_id, course, curator_id, year_started, curriculum_id) VALUES (?,?,?,?,?,?,?)")
+                    ->execute([$name, $specialty_id, $department_id, $course, $curator_id, $year_started, $curriculum_id]);
                 $message = "Группа «{$name}» добавлена.";
             } else {
                 $editId = (int)$_POST['edit_id'];
-                $pdo->prepare("UPDATE edu_groups SET name=?, specialty_id=?, course=?, curator_id=?, year_started=?, curriculum_id=? WHERE id=?")
-                    ->execute([$name, $specialty_id, $course, $curator_id, $year_started, $curriculum_id, $editId]);
+                $pdo->prepare("UPDATE edu_groups SET name=?, specialty_id=?, department_id=?, course=?, curator_id=?, year_started=?, curriculum_id=? WHERE id=?")
+                    ->execute([$name, $specialty_id, $department_id, $course, $curator_id, $year_started, $curriculum_id, $editId]);
                 $message = "Группа «{$name}» обновлена.";
             }
             $messageType = 'success';
@@ -99,6 +101,12 @@ if (isset($_GET['edit'])) {
 
 // Данные для выпадающих списков
 $specialties = $pdo->query("SELECT id, code, name_ru FROM edu_specialties ORDER BY name_ru")->fetchAll(PDO::FETCH_ASSOC);
+$departments = $pdo->query("
+    SELECT id, MIN(department_name) AS department_name
+    FROM departments
+    GROUP BY id
+    ORDER BY department_name ASC
+")->fetchAll(PDO::FETCH_ASSOC);
 $curricula   = $pdo->query("SELECT id, name, enrollment_year, specialty_code FROM edu_curricula ORDER BY enrollment_year DESC, name")->fetchAll(PDO::FETCH_ASSOC);
 $years = $pdo->query("SELECT DISTINCT year_started FROM edu_groups WHERE year_started IS NOT NULL ORDER BY year_started DESC")->fetchAll(PDO::FETCH_COLUMN);
 
@@ -106,12 +114,16 @@ $years = $pdo->query("SELECT DISTINCT year_started FROM edu_groups WHERE year_st
 $where = [];
 $params = [];
 if ($filterQ !== '') {
-    $where[] = "CONCAT_WS(' ', g.name, sp.code, sp.name_ru, c.name, COALESCE(NULLIF(u.full_name, ''), u.username)) LIKE :q";
+    $where[] = "CONCAT_WS(' ', g.name, sp.code, sp.name_ru, d.department_name, c.name, COALESCE(NULLIF(u.full_name, ''), u.username)) LIKE :q";
     $params[':q'] = '%' . $filterQ . '%';
 }
 if ($filterSpecialty) {
     $where[] = 'g.specialty_id = :specialty_id';
     $params[':specialty_id'] = $filterSpecialty;
+}
+if ($filterDepartment) {
+    $where[] = 'g.department_id = :department_id';
+    $params[':department_id'] = $filterDepartment;
 }
 if ($filterCourse && $filterCourse >= 1 && $filterCourse <= 4) {
     $where[] = 'g.course = :course';
@@ -128,11 +140,17 @@ if ($filterCurriculum === 'linked') {
 }
 $sqlRows = "
     SELECT g.*, sp.name_ru AS specialty_name, sp.code AS specialty_code,
+           d.department_name,
            COALESCE(NULLIF(u.full_name, ''), u.username) AS curator_name,
            u.username AS curator_username,
            c.name AS curriculum_name
     FROM edu_groups g
     LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id
+    LEFT JOIN (
+        SELECT id, MIN(department_name) AS department_name
+        FROM departments
+        GROUP BY id
+    ) d ON d.id = g.department_id
     LEFT JOIN users u ON u.id = g.curator_id
     LEFT JOIN edu_curricula c ON c.id = g.curriculum_id
 " . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . "
@@ -157,7 +175,7 @@ $breadcrumbs     = [
 <head>
   <?php require 'includes/head.php' ?>
   <style>
-    .data-table { width:100%; min-width:600px; }
+    .data-table { width:100%; min-width:760px; }
     .data-table th { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--color-text-muted); padding:.75rem 1rem; background:var(--color-surface-2); border-bottom:1px solid var(--color-divider); text-align:left; white-space:nowrap; }
     .data-table td { padding:.75rem 1rem; border-bottom:1px solid var(--color-divider); font-size:.9375rem; vertical-align:middle; }
     .data-table tr:last-child td { border-bottom:none; }
@@ -271,6 +289,17 @@ $breadcrumbs     = [
               </select>
             </div>
             <div class="form-group">
+              <label for="f_department">Отделение</label>
+              <select id="f_department" name="department_id">
+                <option value="">— не выбрано —</option>
+                <?php foreach ($departments as $dept): ?>
+                <option value="<?= (int)$dept['id'] ?>" <?= ($editRow['department_id'] ?? null) == $dept['id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($dept['department_name']) ?>
+                </option>
+                <?php endforeach ?>
+              </select>
+            </div>
+            <div class="form-group">
               <label for="f_course">Курс (1–4) <span style="color:var(--color-danger)">*</span></label>
               <select id="f_course" name="course" required>
                 <?php for ($c = 1; $c <= 4; $c++): ?>
@@ -320,7 +349,7 @@ $breadcrumbs     = [
       <div class="criteria-grid">
         <div class="criteria-field">
           <label for="groups_q">Поиск</label>
-          <input type="search" id="groups_q" name="q" placeholder="Группа, куратор, РУПл…" value="<?= htmlspecialchars($filterQ) ?>">
+          <input type="search" id="groups_q" name="q" placeholder="Группа, отделение, куратор, РУПл…" value="<?= htmlspecialchars($filterQ) ?>">
         </div>
         <div class="criteria-field">
           <label for="groups_specialty">Специальность</label>
@@ -328,6 +357,15 @@ $breadcrumbs     = [
             <option value="">Все специальности</option>
             <?php foreach ($specialties as $sp): ?>
             <option value="<?= (int)$sp['id'] ?>" <?= $filterSpecialty === (int)$sp['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sp['code'] . ' · ' . $sp['name_ru']) ?></option>
+            <?php endforeach ?>
+          </select>
+        </div>
+        <div class="criteria-field">
+          <label for="groups_department">Отделение</label>
+          <select id="groups_department" name="department_id">
+            <option value="">Все отделения</option>
+            <?php foreach ($departments as $dept): ?>
+            <option value="<?= (int)$dept['id'] ?>" <?= $filterDepartment === (int)$dept['id'] ? 'selected' : '' ?>><?= htmlspecialchars($dept['department_name']) ?></option>
             <?php endforeach ?>
           </select>
         </div>
@@ -378,7 +416,7 @@ $breadcrumbs     = [
         <table class="data-table">
           <thead>
             <tr>
-              <th>#</th><th>Название</th><th>Специальность</th><th>Курс</th>
+              <th>#</th><th>Название</th><th>Специальность</th><th>Отделение</th><th>Курс</th>
               <th>Год набора</th><th>Куратор</th><th>Учебный план</th><th style="text-align:right">Действия</th>
             </tr>
           </thead>
@@ -391,6 +429,7 @@ $breadcrumbs     = [
                 <span class="badge badge-gray"><?= htmlspecialchars($r['specialty_code'] ?? '') ?></span>
                 <span style="font-size:.875rem;color:var(--color-text-muted);margin-left:.375rem"><?= htmlspecialchars($r['specialty_name'] ?? '—') ?></span>
               </td>
+              <td style="color:var(--color-text-muted)"><?= htmlspecialchars($r['department_name'] ?? '—') ?></td>
               <td><span class="badge badge-blue"><?= $r['course'] ?> курс</span></td>
               <td><?= htmlspecialchars($r['year_started']) ?></td>
               <td style="color:var(--color-text-muted)"><?= htmlspecialchars($r['curator_name'] ?? ($r['curator_id'] ? 'ID ' . $r['curator_id'] : '—')) ?></td>
@@ -405,7 +444,6 @@ $breadcrumbs     = [
               </td>
               <td>
                 <div class="action-btns" style="justify-content:flex-end">
-                  <a href="export_op_pvt.php?group_id=<?= $r['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem" title="Экспорт ОП">ОП</a>
                   <a href="groups.php?edit=<?= $r['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </a>

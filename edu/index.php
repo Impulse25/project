@@ -19,10 +19,17 @@ $messageType = '';
 
 $filterGroup = (isset($_GET['group_id']) && $_GET['group_id'] !== '') ? (int)$_GET['group_id'] : null;
 $filterSpecialty = (isset($_GET['specialty_id']) && $_GET['specialty_id'] !== '') ? (int)$_GET['specialty_id'] : null;
+$filterDepartment = (isset($_GET['department_id']) && $_GET['department_id'] !== '') ? (int)$_GET['department_id'] : null;
 $filterYear = (isset($_GET['year_started']) && $_GET['year_started'] !== '') ? (int)$_GET['year_started'] : null;
 $filterCard = in_array(($_GET['card_status'] ?? ''), ['filled', 'empty'], true) ? $_GET['card_status'] : '';
 $filterQ = trim((string)($_GET['q'] ?? ''));
 $accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
+$canEduViewGrades     = edu_can($pdo, 'can_edu_view_grades');
+$canEduGrades         = edu_can($pdo, 'can_edu_grades');
+$canEduGenerateSheets = edu_can($pdo, 'can_edu_generate_sheets');
+$canEduExportStudents = edu_can($pdo, 'can_edu_export_students');
+$canEduEditStudents   = edu_can($pdo, 'can_edu_edit_students');
+
 
 // ── Загрузка Excel со студентами (только admin) ─────────────────────────
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
@@ -262,6 +269,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_fi
                 // После импорта сбрасываем фильтры страницы, иначе новые студенты могут быть скрыты старым фильтром.
                 $filterGroup = null;
                 $filterSpecialty = null;
+                $filterDepartment = null;
                 $filterYear = null;
                 $filterCard = '';
                 $filterQ = '';
@@ -294,7 +302,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_fi
 }
 
 // ── Экспорт Excel (admin/director/teacher с учетом доступа) ────────────────
-if (($isAdmin || $isDir || $isTeacher) && isset($_GET['export']) && $_GET['export'] === '1') {
+if ($canEduExportStudents && isset($_GET['export']) && $_GET['export'] === '1') {
 
     // Очищаем буфер, чтобы Excel-файл не ломался из-за лишнего вывода
     if (ob_get_length()) {
@@ -328,12 +336,21 @@ if (($isAdmin || $isDir || $isTeacher) && isset($_GET['export']) && $_GET['expor
                s.nationality
         FROM edu_students s
         LEFT JOIN edu_groups g ON g.id = s.group_id
+        LEFT JOIN (
+            SELECT id, MIN(department_name) AS department_name
+            FROM departments
+            GROUP BY id
+        ) d ON d.id = g.department_id
         LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)
         LEFT JOIN edu_student_cards sc ON sc.student_id = s.id
     ";
     if ($filterSpecialty) {
         $where[] = 'COALESCE(s.speciality_id, g.specialty_id) = :specid';
         $exportParams[':specid'] = $filterSpecialty;
+    }
+    if ($filterDepartment) {
+        $where[] = 'g.department_id = :department_id';
+        $exportParams[':department_id'] = $filterDepartment;
     }
     if ($filterYear) {
         $where[] = 'g.year_started = :year_started';
@@ -345,7 +362,7 @@ if (($isAdmin || $isDir || $isTeacher) && isset($_GET['export']) && $_GET['expor
         $where[] = 'sc.student_id IS NULL';
     }
     if ($filterQ !== '') {
-        $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, sp.name_ru) LIKE :q";
+        $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, d.department_name, sp.name_ru) LIKE :q";
         $exportParams[':q'] = '%' . $filterQ . '%';
     }
     if ($where) $exportSql .= ' WHERE ' . implode(' AND ', $where);
@@ -456,17 +473,51 @@ if ($isAdmin || $isDir) {
     $allGroups = $pdo->query("SELECT id, name FROM edu_groups WHERE id IN (" . edu_in_int_list($accessibleGroupIds) . ") ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
 }
 $allSpecialties = $pdo->query("SELECT id, code, name_ru FROM edu_specialties ORDER BY name_ru")->fetchAll(PDO::FETCH_ASSOC);
+if ($isAdmin || $isDir) {
+    $allDepartments = $pdo->query("
+        SELECT d.id, d.department_name
+        FROM (
+            SELECT id, MIN(department_name) AS department_name
+            FROM departments
+            GROUP BY id
+        ) d
+        INNER JOIN edu_groups g ON g.department_id = d.id
+        GROUP BY d.id, d.department_name
+        ORDER BY d.department_name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} elseif ($isTeacher && $accessibleGroupIds) {
+    $allDepartments = $pdo->query("
+        SELECT d.id, d.department_name
+        FROM (
+            SELECT id, MIN(department_name) AS department_name
+            FROM departments
+            GROUP BY id
+        ) d
+        INNER JOIN edu_groups g ON g.department_id = d.id
+        WHERE g.id IN (" . edu_in_int_list($accessibleGroupIds) . ")
+        GROUP BY d.id, d.department_name
+        ORDER BY d.department_name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $allDepartments = [];
+}
 $allYears = $pdo->query("SELECT DISTINCT year_started FROM edu_groups WHERE year_started IS NOT NULL ORDER BY year_started DESC")->fetchAll(PDO::FETCH_COLUMN);
 // ── Выборка студентов из БД ───────────────────────────────────────────────
 $sql    = "
     SELECT s.id, s.surname, s.name, s.patronymic,
            s.birth_date,
            g.name AS group_name, g.id AS group_id, g.year_started,
+           d.department_name AS department_name,
            sp.name_ru AS specialty,
            s.iin, s.citizenship, s.nationality,
            sc.id AS card_id
     FROM edu_students s
     LEFT JOIN edu_groups g  ON g.id  = s.group_id
+    LEFT JOIN (
+        SELECT id, MIN(department_name) AS department_name
+        FROM departments
+        GROUP BY id
+    ) d ON d.id = g.department_id
     LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)
     LEFT JOIN edu_student_cards sc ON sc.student_id = s.id
 ";
@@ -490,6 +541,10 @@ if ($filterSpecialty) {
     $where[] = "COALESCE(s.speciality_id, g.specialty_id) = :specid";
     $params[':specid'] = $filterSpecialty;
 }
+if ($filterDepartment) {
+    $where[] = "g.department_id = :department_id";
+    $params[':department_id'] = $filterDepartment;
+}
 if ($filterYear) {
     $where[] = "g.year_started = :year_started";
     $params[':year_started'] = $filterYear;
@@ -500,7 +555,7 @@ if ($filterCard === 'filled') {
     $where[] = "sc.student_id IS NULL";
 }
 if ($filterQ !== '') {
-    $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, sp.name_ru) LIKE :q";
+    $where[] = "CONCAT_WS(' ', s.surname, s.name, s.patronymic, s.iin, g.name, d.department_name, sp.name_ru) LIKE :q";
     $params[':q'] = '%' . $filterQ . '%';
 }
 if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -542,7 +597,7 @@ $breadcrumbs     = [
     .stat-value   { font-weight: 700; font-size: 1.125rem; font-variant-numeric: tabular-nums; }
     .stat-label   { font-size: 0.75rem; color: var(--color-text-muted); }
     .table-wrapper { overflow-x: auto; }
-    .data-table { width: 100%; min-width: 700px; }
+    .data-table { width: 100%; min-width: 860px; }
     .data-table th { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); padding: 0.75rem 1rem; background: var(--color-surface-2); border-bottom: 1px solid var(--color-divider); text-align: left; white-space: nowrap; }
     .data-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-divider); font-size: 0.9375rem; vertical-align: middle; }
     .data-table tr:last-child td { border-bottom: none; }
@@ -583,22 +638,23 @@ $breadcrumbs     = [
           <a href="subjects.php"         class="btn btn-outline">Дисциплины</a>
           <a href="semesters.php"        class="btn btn-outline">Семестры</a>
           <a href="import_logs.php"      class="btn btn-outline">История импортов</a>
-          <a href="grade_sheets.php"     class="btn btn-outline">Оценки</a>
+          <?php if ($canEduViewGrades): ?><a href="grade_sheets.php" class="btn btn-outline">Оценки</a><?php endif ?>
           <a href="curricula.php"        class="btn btn-outline">Учебные планы (РУПл)</a>
-          <a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a>
+          <?php if ($canEduGenerateSheets): ?><a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a><?php endif ?>
         </div>
         <?php elseif ($isDir || $isTeacher): ?>
         <div class="refs-nav">
-          <a href="grade_sheets.php"      class="btn btn-outline">Оценки</a>
-          <a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a>
+          <?php if ($canEduViewGrades): ?><a href="grade_sheets.php" class="btn btn-outline">Оценки</a><?php endif ?>
+          <?php if ($canEduGenerateSheets): ?><a href="vedomost_generate.php" class="btn btn-outline">Сформировать ведомость</a><?php endif ?>
           <a href="curricula.php"         class="btn btn-outline">Учебные планы (РУПл)</a>
         </div>
         <?php endif ?>
-        <?php if (($isAdmin || $isDir || $isTeacher) && $total > 0): ?>
+        <?php if ($canEduExportStudents && $total > 0): ?>
         <a href="index.php?export=1&amp;<?= htmlspecialchars(http_build_query(array_filter([
           'q' => $filterQ,
           'group_id' => $filterGroup,
           'specialty_id' => $filterSpecialty,
+          'department_id' => $filterDepartment,
           'year_started' => $filterYear,
           'card_status' => $filterCard,
         ], static fn($v) => $v !== null && $v !== ''))) ?>" class="btn btn-success">
@@ -671,7 +727,7 @@ $breadcrumbs     = [
         <div class="criteria-grid">
           <div class="criteria-field">
             <label for="students_q">Поиск по ФИО</label>
-            <input type="search" id="students_q" name="q" placeholder="Фамилия, ИИН, группа…" value="<?= htmlspecialchars($filterQ) ?>">
+            <input type="search" id="students_q" name="q" placeholder="Фамилия, ИИН, группа, отделение…" value="<?= htmlspecialchars($filterQ) ?>">
           </div>
           <div class="criteria-field">
             <label for="group_filter">Группа</label>
@@ -688,6 +744,15 @@ $breadcrumbs     = [
               <option value="">Все специальности</option>
               <?php foreach ($allSpecialties as $sp): ?>
               <option value="<?= (int)$sp['id'] ?>" <?= $filterSpecialty === (int)$sp['id'] ? 'selected' : '' ?>><?= htmlspecialchars($sp['code'] . ' · ' . $sp['name_ru']) ?></option>
+              <?php endforeach ?>
+            </select>
+          </div>
+          <div class="criteria-field">
+            <label for="department_filter">Отделение</label>
+            <select name="department_id" id="department_filter">
+              <option value="">Все отделения</option>
+              <?php foreach ($allDepartments as $dept): ?>
+              <option value="<?= (int)$dept['id'] ?>" <?= $filterDepartment === (int)$dept['id'] ? 'selected' : '' ?>><?= htmlspecialchars($dept['department_name']) ?></option>
               <?php endforeach ?>
             </select>
           </div>
@@ -729,10 +794,11 @@ $breadcrumbs     = [
           <thead>
             <tr>
               <th>#</th><th>ID</th><th>Фамилия</th><th>Имя</th><th>Отчество</th>
-              <th>Дата рождения</th><th>Группа</th><th>Специальность</th>
-              <th>ИИН</th><th>Гражданство</th><th>Национальность</th><?php if ($isAdmin || $isTeacher): ?><th style="text-align:center">Действия</th><?php endif ?>
+              <th>Дата рождения</th><th>Группа</th><th>Отделение</th><th>Специальность</th>
+              <th>ИИН</th><th>Гражданство</th><th>Национальность</th><?php if ($canEduEditStudents || $isAdmin): ?><th style="text-align:center">Действия</th><?php endif ?>
             </tr>
           </thead>
+              <!-- Загрузка студентов -->
           <tbody id="tableBody">
             <?php foreach (array_slice($students, 0, 25) as $i => $s): ?>
             <tr class="student-row" onclick="location.href='about_student.php?id=<?= (int)$s['id'] ?>'">
@@ -743,14 +809,15 @@ $breadcrumbs     = [
               <td style="color:var(--color-text-muted)"><?= htmlspecialchars($s['patronymic']) ?></td>
               <td><?= htmlspecialchars($s['birth_date']) ?></td>
               <td><span class="badge badge-gray"><?= htmlspecialchars($s['group_name'] ?? '—') ?></span></td>
+              <td style="font-size:0.875rem;color:var(--color-text-muted)"><?= htmlspecialchars($s['department_name'] ?? '—') ?></td>
               <td style="font-size:0.875rem;color:var(--color-text-muted)"><?= htmlspecialchars($s['specialty'] ?? '—') ?></td>
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
-              <?php if ($isAdmin || $isTeacher): ?>
+              <?php if ($canEduEditStudents || $isAdmin): ?>
               <td onclick="event.stopPropagation()">
                 <div class="action-btns" style="justify-content:center">
-                  <?php if ($isTeacher): ?>
+                  <?php if ($canEduEditStudents && $isTeacher): ?>
                   <a href="about_student.php?id=<?= (int)$s['id'] ?>&edit=1"
                      class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
                      title="Редактировать">
@@ -771,6 +838,7 @@ $breadcrumbs     = [
             </tr>
             <?php endforeach ?>
           </tbody>
+          
           <?php if ($total > 25): ?>
           <tbody id="hiddenRows" style="display:none">
             <?php foreach (array_slice($students, 25) as $i => $s): $real = $i + 25; ?>
@@ -782,14 +850,15 @@ $breadcrumbs     = [
               <td style="color:var(--color-text-muted)"><?= htmlspecialchars($s['patronymic']) ?></td>
               <td><?= htmlspecialchars($s['birth_date']) ?></td>
               <td><span class="badge badge-gray"><?= htmlspecialchars($s['group_name'] ?? '—') ?></span></td>
+              <td style="font-size:0.875rem;color:var(--color-text-muted)"><?= htmlspecialchars($s['department_name'] ?? '—') ?></td>
               <td style="font-size:0.875rem;color:var(--color-text-muted)"><?= htmlspecialchars($s['specialty'] ?? '—') ?></td>
               <td style="font-family:monospace;font-size:0.875rem"><?= htmlspecialchars($s['iin']) ?></td>
               <td><?= htmlspecialchars($s['citizenship'] ?? '—') ?></td>
               <td><?= htmlspecialchars($s['nationality'] ?? '—') ?></td>
-              <?php if ($isAdmin || $isTeacher): ?>
+              <?php if ($canEduEditStudents || $isAdmin): ?>
               <td onclick="event.stopPropagation()">
                 <div class="action-btns" style="justify-content:center">
-                  <?php if ($isTeacher): ?>
+                  <?php if ($canEduEditStudents && $isTeacher): ?>
                   <a href="about_student.php?id=<?= (int)$s['id'] ?>&edit=1"
                      class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem"
                      title="Редактировать">

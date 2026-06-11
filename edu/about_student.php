@@ -8,6 +8,10 @@ $isAdmin   = edu_is_admin();
 $isDirector = edu_is_director();
 $isTeacher = edu_is_teacher();
 $canEdit   = false;
+$canEduEditStudents = edu_can($pdo, 'can_edu_edit_students');
+$canEduStudentCard  = edu_can($pdo, 'can_edu_student_card');
+$canEduDiplomaBook  = edu_can($pdo, 'can_edu_diploma_book');
+
 
 $studentCardExtraColumns = [
     'gender' => 'Пол',
@@ -62,7 +66,7 @@ if (!$accessRow) {
 $accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
 $teacherOwnsStudent = $isTeacher && in_array((int)($accessRow['group_id'] ?? 0), $accessibleGroupIds, true);
 $canView = $isAdmin || $isDirector || $teacherOwnsStudent;
-$canEdit = $isAdmin || $teacherOwnsStudent;
+$canEdit = $canEduEditStudents && ($isAdmin || $teacherOwnsStudent);
 if (!$canView) {
     header('Location: index.php');
     exit;
@@ -362,14 +366,18 @@ $breadcrumbs     = [
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
         Назад к списку
       </a>
+      <?php if ($canEduStudentCard): ?>
       <a href="export_student_card.php?student_id=<?= $studentId ?>" class="btn btn-outline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         Личная карточка
       </a>
+      <?php endif ?>
+      <?php if ($canEduDiplomaBook): ?>
       <a href="export_diploma_book.php?student_id=<?= $studentId ?>" class="btn btn-outline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         Дипломная книга
       </a>
+      <?php endif ?>
       <button class="btn btn-outline" onclick="window.print()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         Печать карточки
@@ -691,10 +699,6 @@ if (photoInput) {
   });
 }
 
-<?php if (isset($_GET['edit']) && $_GET['edit'] === '1'): ?>
-// Автооткрытие формы редактирования если передан параметр ?edit=1
-document.addEventListener('DOMContentLoaded', () => toggleEdit());
-<?php endif ?>
 </script>
 </body>
 </html>

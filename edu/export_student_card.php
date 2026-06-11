@@ -12,6 +12,7 @@ if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: index.php');
     exit;
 }
+edu_require_permission($pdo, 'can_edu_student_card', 'index.php');
 
 $studentId = (int)($_GET['student_id'] ?? $_GET['id'] ?? 0);
 if (!$studentId) { header('Location: index.php'); exit; }
