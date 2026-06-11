@@ -133,6 +133,39 @@ $stmt = $pdo->prepare("
 $stmt->execute([':date' => $selectedDate, ':group_id' => $selectedGrp]);
 $students = $stmt->fetchAll();
 
+// ── QR-посещаемость: первый вход и последний выход каждого студента за дату ─────
+$qrActions = [];
+if (!empty($students)) {
+    $iinList = array_column($students, 'iin');
+    $iinPlaceholders = implode(',', array_fill(0, count($iinList), '?'));
+    // Первый вход (entry) за день
+    $stmtEntry = $pdo->prepare("
+        SELECT iin, MIN(action_time) AS entry_time
+        FROM qr_attendance
+        WHERE DATE(action_time) = ?
+          AND action = 'entry'
+          AND iin IN ($iinPlaceholders)
+        GROUP BY iin
+    ");
+    $stmtEntry->execute(array_merge([$selectedDate], $iinList));
+    foreach ($stmtEntry->fetchAll() as $row) {
+        $qrActions[$row['iin']]['entry_time'] = $row['entry_time'];
+    }
+    // Последний выход (exit) за день
+    $stmtExit = $pdo->prepare("
+        SELECT iin, MAX(action_time) AS exit_time
+        FROM qr_attendance
+        WHERE DATE(action_time) = ?
+          AND action = 'exit'
+          AND iin IN ($iinPlaceholders)
+        GROUP BY iin
+    ");
+    $stmtExit->execute(array_merge([$selectedDate], $iinList));
+    foreach ($stmtExit->fetchAll() as $row) {
+        $qrActions[$row['iin']]['exit_time'] = $row['exit_time'];
+    }
+}
+
 // ── Данные текущей группы ─────────────────────────────────────────────────────
 $groupInfo = $groups[$selectedGrp] ?? ($groups ? reset($groups) : ['name'=>'—','specialty'=>'','curator_name'=>'','curator_id'=>null]);
 

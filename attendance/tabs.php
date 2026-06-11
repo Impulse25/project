@@ -185,6 +185,7 @@
                   <th>Группа</th>
                   <th>ИИН</th>
                   <th>Статус</th>
+                  <th>Вход/Выход в колледж</th>
                   <th>Часов пропущено</th>
                   <th>Причина</th>
                   <th style="width:140px">Действие</th>
@@ -207,6 +208,41 @@
                     <span class="badge <?= $statusCls[$st['status']] ?> status-badge-<?= $st['id'] ?>">
                       <?= $statusLabels[$st['status']] ?>
                     </span>
+                  </td>
+                  <?php
+                    $qr = $qrActions[$st['iin']] ?? null;
+                    $entryTime = isset($qr['entry_time']) ? date('H:i', strtotime($qr['entry_time'])) : null;
+                    $exitTime  = isset($qr['exit_time'])  ? date('H:i', strtotime($qr['exit_time']))  : null;
+                  ?>
+                  <td style="white-space:nowrap">
+                    <?php if ($entryTime || $exitTime): ?>
+                      <div style="display:flex;flex-direction:row;gap:6px;flex-wrap:wrap">
+                        <?php if ($entryTime): ?>
+                          <span style="display:inline-flex;align-items:center;gap:5px;background:#14532d;color:#86efac;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;width:fit-content">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 17 17 7"/><polyline points="7 7 17 7 17 17"/></svg>
+                            Вход <span style="font-weight:400;opacity:.85"><?= $entryTime ?></span>
+                          </span>
+                        <?php else: ?>
+                          <span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-bg-subtle,#1e293b);color:var(--color-text-faint);font-size:11px;padding:3px 8px;border-radius:6px;width:fit-content;opacity:.5">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 17 17 7"/><polyline points="7 7 17 7 17 17"/></svg>
+                            Вход —
+                          </span>
+                        <?php endif ?>
+                        <?php if ($exitTime): ?>
+                          <span style="display:inline-flex;align-items:center;gap:5px;background:#4c0519;color:#fca5a5;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;width:fit-content">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 7 7 17"/><polyline points="17 17 7 17 7 7"/></svg>
+                            Выход <span style="font-weight:400;opacity:.85"><?= $exitTime ?></span>
+                          </span>
+                        <?php else: ?>
+                          <span style="display:inline-flex;align-items:center;gap:5px;background:var(--color-bg-subtle,#1e293b);color:var(--color-text-faint);font-size:11px;padding:3px 8px;border-radius:6px;width:fit-content;opacity:.5">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 7 7 17"/><polyline points="17 17 7 17 7 7"/></svg>
+                            Выход —
+                          </span>
+                        <?php endif ?>
+                      </div>
+                    <?php else: ?>
+                      <span style="color:var(--color-text-faint);font-size:var(--text-xs)">Нет данных</span>
+                    <?php endif ?>
                   </td>
                   <td>
                     <input type="number" min="0" max="8" value="<?= $st['hours_missed'] ?>"

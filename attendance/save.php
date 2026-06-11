@@ -46,7 +46,7 @@ $isAdmin = in_array($userRole, ['admin', 'director']);
 
 if ($group_id > 0 && !$isAdmin) {
     $stmtGroup = $pdo->prepare(
-        "SELECT id FROM edu_groups WHERE id = :gid AND teacher_id = :tid"
+        "SELECT id FROM edu_groups WHERE id = :gid AND curator_id = :tid"
     );
     $stmtGroup->execute([':gid' => $group_id, ':tid' => $teacher_id]);
     if (!$stmtGroup->fetch()) {

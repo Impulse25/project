@@ -108,6 +108,18 @@
       </div>
     </div>
     <div class="topbar-right">
+<a href="help.php" target="_blank"
+   class="btn btn-outline btn-sm"
+   title="Справочная система — помощь по модулю">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+  Помощь
+</a>
       <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?></div>
       <?php if ($isAdmin): ?>
       <a href="../requests/admin_dashboard.php" class="btn btn-outline btn-sm">
