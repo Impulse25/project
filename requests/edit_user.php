@@ -1,7 +1,7 @@
-﻿<?php
+<?php
 // edit_user.php - Редактирование профиля пользователя
 
-require_once __DIR__ . '/../config/db.php';
+require_once 'config/db.php';
 require_once 'includes/auth.php';
 require_once 'includes/language.php';
 
@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$username, $fullName, $role, $position, $userId]);
         }
         
+        clearPermissionsCache();
         $success = 'Профиль успешно обновлён!';
         
         // Обновляем данные для отображения
@@ -144,7 +145,6 @@ $currentLang = getCurrentLanguage();
                     </h2>
                     
                     <form method="POST">
-<?= csrf_field() ?>
                         <div class="space-y-4">
                             
                             <!-- Логин -->
@@ -311,10 +311,14 @@ $currentLang = getCurrentLanguage();
                     <p class="text-sm text-red-600 mb-4">
                         Удаление пользователя нельзя отменить!
                     </p>
-                    <a href="delete_user.php?id=<?php echo $editUser['id']; ?>" onclick="return confirm('Вы уверены, что хотите удалить пользователя <?php echo $editUser['full_name']; ?>? Это действие нельзя отменить!')" class="block bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition text-center font-medium">
-                        <i class="fas fa-trash mr-2"></i>
-                        Удалить пользователя
-                    </a>
+                    <form method="POST" action="delete_user.php" onsubmit="return confirm('Удалить пользователя? Это действие нельзя отменить!')">
+                        <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+                        <input type="hidden" name="id" value="<?php echo $editUser['id']; ?>">
+                        <button type="submit" class="block w-full bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition text-center font-medium">
+                            <i class="fas fa-trash mr-2"></i>
+                            Удалить пользователя
+                        </button>
+                    </form>
                 </div>
                 <?php endif; ?>
                 

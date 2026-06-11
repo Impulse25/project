@@ -1,7 +1,8 @@
-﻿<?php
+<?php
 // edit_role.php — Редактирование роли
-require_once __DIR__ . '/../config/db.php';
+require_once 'config/db.php';
 require_once 'includes/auth.php';
+require_once 'includes/permissions.php';
 require_once 'includes/language.php';
 requireRole('admin');
 $user = getCurrentUser();
@@ -18,19 +19,50 @@ if (!$role) { header('Location: users.php?tab=roles'); exit(); }
 $protectedRoles = ['admin', 'director'];
 $isProtected = in_array($role['role_code'], $protectedRoles);
 
+$requestPerms = [
+    'can_create_request'  => ['Создавать заявки',        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>'],
+    'can_approve_request' => ['Одобрять заявки',         '<polyline points="20 6 9 17 4 12"/>'],
+    'can_work_on_request' => ['Работать над заявками',   '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'],
+    'can_manage_users'    => ['Управлять пользователями','<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'],
+    'can_manage_cabinets' => ['Управлять кабинетами',    '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
+    'can_view_all_requests'=>['Видеть все заявки',       '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'],
+];
+
+$eduPerms = [
+    'can_edu_view_grades'     => ['Просмотр страницы оценок',                   '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'],
+    'can_edu_grades'          => ['Выставление и сохранение оценок',            '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>'],
+    'can_edu_generate_sheets' => ['Формирование ведомостей',                    '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>'],
+    'can_edu_export_students' => ['Экспорт списка студентов на главной',         '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'],
+    'can_edu_edit_students'   => ['Редактирование студентов в личных карточках', '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>'],
+    'can_edu_student_card'    => ['Формирование личной карточки',                '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/>'],
+    'can_edu_diploma_book'    => ['Формирование дипломной книги',                '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/>'],
+];
+
+$allEditablePerms = array_merge(array_keys($requestPerms), array_keys($eduPerms));
+
 $success = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isProtected) {
     try {
-        $stmt = $pdo->prepare("UPDATE roles SET role_name_ru=?,role_name_kk=?,description=?,can_create_request=?,can_approve_request=?,can_work_on_request=?,can_manage_users=?,can_manage_cabinets=?,can_view_all_requests=? WHERE id=?");
-        $stmt->execute([
-            $_POST['role_name_ru'], $_POST['role_name_kk'], $_POST['description']??'',
-            isset($_POST['can_create_request'])?1:0, isset($_POST['can_approve_request'])?1:0,
-            isset($_POST['can_work_on_request'])?1:0, isset($_POST['can_manage_users'])?1:0,
-            isset($_POST['can_manage_cabinets'])?1:0, isset($_POST['can_view_all_requests'])?1:0,
-            $roleId
-        ]);
+        $setParts = ['role_name_ru=?', 'role_name_kk=?', 'description=?'];
+        foreach ($allEditablePerms as $permKey) {
+            $setParts[] = $permKey . '=?';
+        }
+
+        $params = [
+            $_POST['role_name_ru'],
+            $_POST['role_name_kk'],
+            $_POST['description'] ?? '',
+        ];
+        foreach ($allEditablePerms as $permKey) {
+            $params[] = isset($_POST[$permKey]) ? 1 : 0;
+        }
+        $params[] = $roleId;
+
+        $stmt = $pdo->prepare('UPDATE roles SET ' . implode(',', $setParts) . ' WHERE id=?');
+        $stmt->execute($params);
+        clearPermissionsCache();
         $success = 'Роль успешно обновлена!';
         $stmt = $pdo->prepare("SELECT * FROM roles WHERE id = ?");
         $stmt->execute([$roleId]); $role = $stmt->fetch();
@@ -784,7 +816,6 @@ require_once __DIR__ . '/includes/sidebar.php';
         <div class="card-header"><span class="card-title">Настройки роли</span></div>
         <div class="card-body">
           <form method="POST">
-<?= csrf_field() ?>
             <div class="form-group">
               <label class="form-label">Код роли</label>
               <input type="text" value="<?= htmlspecialchars($role['role_code']) ?>" disabled class="form-input">
@@ -806,22 +837,17 @@ require_once __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="form-group">
               <label class="form-label">Права доступа</label>
-              <?php
-              $perms = [
-                  'can_create_request'  => ['Создавать заявки',        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>'],
-                  'can_approve_request' => ['Одобрять заявки',         '<polyline points="20 6 9 17 4 12"/>'],
-                  'can_work_on_request' => ['Работать над заявками',   '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'],
-                  'can_manage_users'    => ['Управлять пользователями','<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'],
-                  'can_manage_cabinets' => ['Управлять кабинетами',    '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
-                  'can_view_all_requests'=>['Видеть все заявки',       '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'],
-              ];
-              foreach($perms as $key => [$label, $icon_path]):
-              ?>
+              <?php foreach (['Заявки в ИТ' => $requestPerms, 'Учебный модуль (edu)' => $eduPerms] as $groupTitle => $permGroup): ?>
+              <div style="font-size:.8125rem;font-weight:700;color:var(--color-text-muted);margin:.75rem 0 .5rem;text-transform:uppercase;letter-spacing:.05em">
+                <?= htmlspecialchars($groupTitle) ?>
+              </div>
+              <?php foreach($permGroup as $key => [$label, $icon_path]): ?>
               <label class="permission-row <?= $isProtected?'disabled':'' ?>">
-                <input type="checkbox" name="<?= $key ?>" <?= $role[$key]?'checked':'' ?> <?= $isProtected?'disabled':'' ?>>
+                <input type="checkbox" name="<?= $key ?>" <?= !empty($role[$key])?'checked':'' ?> <?= $isProtected?'disabled':'' ?>>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;color:var(--color-primary);flex-shrink:0"><?= $icon_path ?></svg>
                 <span style="font-size:.9375rem;color:var(--color-text)"><?= $label ?></span>
               </label>
+              <?php endforeach; ?>
               <?php endforeach; ?>
             </div>
             <?php if(!$isProtected): ?>
