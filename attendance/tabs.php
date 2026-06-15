@@ -163,7 +163,11 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">
-              Журнал — <?= date('d.m.Y (l)', strtotime($selectedDate)) ?>
+              <?php
+                $ruDays = ['Monday'=>'Понедельник','Tuesday'=>'Вторник','Wednesday'=>'Среда','Thursday'=>'Четверг','Friday'=>'Пятница','Saturday'=>'Суббота','Sunday'=>'Воскресенье'];
+                $ruDay = $ruDays[date('l', strtotime($selectedDate))] ?? date('l', strtotime($selectedDate));
+              ?>
+              Журнал — <?= date('d.m.Y', strtotime($selectedDate)) ?> (<?= $ruDay ?>)
             </span>
             <div style="display:flex;gap:.5rem">
               <button class="btn btn-outline btn-sm" onclick="markAll('present')">✓ Все присутствуют</button>
