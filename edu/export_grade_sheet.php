@@ -18,7 +18,7 @@ edu_require_permission($pdo, 'can_edu_generate_sheets', 'grade_sheets.php');
 $sheetId = (int)($_GET['sheet_id'] ?? 0);
 if (!$sheetId) { header('Location: grade_sheets.php'); exit; }
 
-$stmt = $pdo->prepare("\n    SELECT gs.*,\n           g.name AS group_name, g.curator_id, g.course,\n           sp.code AS specialty_code, sp.name_ru AS specialty_name, sp.qualification,\n           COALESCE(NULLIF(m.index_code, ''), sub.code) AS subject_code,\n           COALESCE(NULLIF(m.name, ''), sub.name_ru) AS subject_name,\n           COALESCE(m.total_hours, sub.hours_total) AS hours_total,\n           sem.year_start, sem.year_end, sem.semester_num,\n           u.full_name AS teacher_name\n    FROM edu_grade_sheets gs\n    LEFT JOIN edu_groups g ON g.id = gs.group_id\n    LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id\n    LEFT JOIN edu_curriculum_modules m ON m.id = gs.curriculum_module_id\n    LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id\n    LEFT JOIN edu_semesters sem ON sem.id = gs.semester_id\n    LEFT JOIN users u ON u.id = gs.teacher_id\n    WHERE gs.id = ?\n");
+$stmt = $pdo->prepare("\n    SELECT gs.*,\n           g.name AS group_name, g.curator_id, g.course,\n           sp.code AS specialty_code, sp.name_ru AS specialty_name, sp.qualification,\n           COALESCE(NULLIF(TRIM(m.index_code), ''), sub.code) AS subject_code,\n           COALESCE(NULLIF(TRIM(m.component_name), ''), NULLIF(TRIM(m.name), ''), sub.name_ru) AS subject_name,\n           COALESCE(m.total_hours, sub.hours_total) AS hours_total,\n           sem.year_start, sem.year_end, sem.semester_num,\n           u.full_name AS teacher_name\n    FROM edu_grade_sheets gs\n    LEFT JOIN edu_groups g ON g.id = gs.group_id\n    LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id\n    LEFT JOIN edu_curriculum_modules m ON m.id = gs.curriculum_module_id\n    LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id\n    LEFT JOIN edu_semesters sem ON sem.id = gs.semester_id\n    LEFT JOIN users u ON u.id = gs.teacher_id\n    WHERE gs.id = ?\n");
 $stmt->execute([$sheetId]);
 $sheet = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$sheet) { header('Location: grade_sheets.php'); exit; }
@@ -77,7 +77,9 @@ $date = !empty($_GET['date']) ? strtotime($_GET['date']) : time();
 $months = [1=>'января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 $dateLine = '« ' . date('d', $date) . ' » ' . $months[(int)date('n', $date)] . ' ' . date('Y', $date) . ' г.';
 
-$subjectLine = trim(($sheet['subject_code'] ? $sheet['subject_code'] . '. ' : '') . ($sheet['subject_name'] ?? ''));
+$subjectCode = trim((string)($sheet['subject_code'] ?? ''));
+$subjectName = trim((string)($sheet['subject_name'] ?? ''));
+$subjectLine = trim(($subjectCode !== '' ? $subjectCode . ' — ' : '') . $subjectName);
 $body = '';
 $body .= edu_docx_p('Министерство просвещения Республики Казахстан', 'center', false, 22);
 $body .= edu_docx_p('КГКП «Саранский высший гуманитарно-технический колледж имени Абая Кунанбаева»', 'center', false, 22);

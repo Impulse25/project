@@ -359,7 +359,7 @@ function edu_student_card_norm_token($value): string
 function edu_student_card_is_parent_section_code($value): bool
 {
     $code = edu_student_card_norm_token($value);
-    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)\d+$/u', $code);
+    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
 }
 
 function edu_student_card_norm_key(string $value): string

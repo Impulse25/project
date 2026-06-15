@@ -183,7 +183,7 @@ function edu_curriculum_norm_token($value): string
 function edu_curriculum_is_parent_section_code($value): bool
 {
     $code = edu_curriculum_norm_token($value);
-    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)\d+$/u', $code);
+    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
 }
 
 // Строим дерево: top-level и дочерние
@@ -235,7 +235,7 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
     .tab{padding:.625rem 1.25rem;font-size:1rem;font-weight:500;color:var(--color-text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;text-decoration:none;transition:color var(--transition);line-height:1.25;flex:0 0 auto}
     .tab:hover{color:var(--color-text)}
     .tab.active{color:var(--color-primary);border-bottom-color:var(--color-primary)}
-    .plan-table{width:100%;font-size:.8125rem;border-collapse:collapse}
+    .plan-table{width:100%;min-width:1550px;font-size:.8125rem;border-collapse:collapse}
     .plan-table th{background:var(--color-surface-2);padding:.5rem .75rem;border:1px solid var(--color-border);white-space:nowrap;font-size:.75rem;text-align:center}
     .plan-table td{padding:.4rem .75rem;border:1px solid var(--color-divider);vertical-align:middle}
     .plan-table .col-name{text-align:left;max-width:280px}
@@ -247,7 +247,7 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
     .indent-1{padding-left:1.5rem!important}
     .indent-2{padding-left:2.5rem!important}
     .badge-type{display:inline-block;padding:1px 6px;border-radius:3px;font-size:.7rem;font-weight:600}
-    .t-ООД{background:#dbeafe;color:#1d4ed8}
+    .t-ООД,.t-ООМ{background:#dbeafe;color:#1d4ed8}
     .t-БМ{background:#ede9fe;color:#7c3aed}
     .t-ПМ{background:#dcfce7;color:#15803d}
     .t-ПА,.t-ИА,.t-ДП{background:#fef3c7;color:#b45309}
@@ -342,7 +342,7 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
           <?php endforeach ?>
         </div>
         <?php if (empty($passportRows)): ?>
-        <div class="empty-cell" style="padding:1rem">Детальные поля паспорта появятся после повторного импорта РУПл с миграцией 002.</div>
+        <div class="empty-cell" style="padding:1rem">Детальные поля паспорта пока не заполнены.</div>
         <?php endif ?>
       </div>
     </div>
@@ -355,19 +355,21 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
           <thead>
             <tr>
               <th rowspan="2" style="width:90px">Индекс</th>
-              <th rowspan="2" style="min-width:160px">Модуль / дисциплина</th>
-              <th rowspan="2" class="col-name">Наименование</th>
-              <th rowspan="2">Тип</th>
+              <th rowspan="2" style="min-width:150px">Модуль/дисц.</th>
+              <th rowspan="2" class="col-name">Название</th>
+              <th rowspan="2">Экз.</th>
+              <th rowspan="2">Зач.</th>
+              <th rowspan="2">Контр. раб.</th>
               <th rowspan="2">Кред.</th>
-              <th rowspan="2">Часов</th>
-              <th rowspan="2">Теория</th>
-              <th rowspan="2">Практика</th>
+              <th rowspan="2">Часы</th>
+              <th rowspan="2">Теор.</th>
+              <th rowspan="2">Практ.</th>
               <th rowspan="2">Курс.р.</th>
               <th rowspan="2">СРСП</th>
               <th rowspan="2">СРС</th>
-              <th rowspan="2">Экз.</th>
-              <th rowspan="2">Зач.</th>
-              <th colspan="8" style="background:var(--color-primary-highlight);color:var(--color-primary)">Семестры (часов)</th>
+              <th rowspan="2">Произв. обуч.</th>
+              <th rowspan="2">Индив.</th>
+              <th colspan="8" style="background:var(--color-primary-highlight);color:var(--color-primary)">Сем. (ч.)</th>
             </tr>
             <tr>
               <?php for ($s = 1; $s <= 8; $s++): ?>
@@ -378,13 +380,13 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
           <tbody>
           <?php if (!empty($semesterMetaRows)): ?>
           <tr class="row-summary">
-            <td colspan="13" class="col-name">Количество учебных недель</td>
+            <td colspan="15" class="col-name">Количество учебных недель</td>
             <?php for ($s = 1; $s <= 8; $s++): ?>
             <td class="col-num"><?= isset($semesterMetaRows[$s]['study_weeks']) ? htmlspecialchars((string)$semesterMetaRows[$s]['study_weeks']) : '' ?></td>
             <?php endfor ?>
           </tr>
           <tr class="row-summary">
-            <td colspan="13" class="col-name">Итого в неделю</td>
+            <td colspan="15" class="col-name">Итого в неделю</td>
             <?php for ($s = 1; $s <= 8; $s++): ?>
             <td class="col-num"><?= isset($semesterMetaRows[$s]['weekly_hours']) ? htmlspecialchars((string)$semesterMetaRows[$s]['weekly_hours']) : '' ?></td>
             <?php endfor ?>
@@ -409,11 +411,9 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
             <td class="col-name <?= $depth > 0 ? 'indent-' . $depth : '' ?>">
               <?= htmlspecialchars(mb_strimwidth($m['name'], 0, 90, '…')) ?>
             </td>
-            <td class="col-num">
-              <?php if (!$m['is_summary']): ?>
-              <span class="badge-type t-<?= htmlspecialchars($m['module_type']) ?>"><?= htmlspecialchars($m['module_type']) ?></span>
-              <?php endif ?>
-            </td>
+            <td class="col-num" style="color:var(--color-error)"><?= htmlspecialchars($m['exam_semester'] ?? '') ?></td>
+            <td class="col-num" style="color:var(--color-success)"><?= htmlspecialchars($m['credit_semester'] ?? '') ?></td>
+            <td class="col-num"><?= htmlspecialchars($m['control_work'] ?? '') ?></td>
             <td class="col-num"><?= $m['credits'] !== null ? $m['credits'] : '' ?></td>
             <td class="col-num"><?= $m['total_hours'] ?? '' ?></td>
             <td class="col-num"><?= $m['theory_hours'] ?? '' ?></td>
@@ -421,8 +421,8 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
             <td class="col-num"><?= $m['coursework_hours'] ?? '' ?></td>
             <td class="col-num"><?= $m['srsp_hours'] ?? '' ?></td>
             <td class="col-num"><?= $m['srs_hours'] ?? '' ?></td>
-            <td class="col-num" style="color:var(--color-error)"><?= htmlspecialchars($m['exam_semester'] ?? '') ?></td>
-            <td class="col-num" style="color:var(--color-success)"><?= htmlspecialchars($m['credit_semester'] ?? '') ?></td>
+            <td class="col-num"><?= $m['production_hours'] ?? '' ?></td>
+            <td class="col-num"><?= $m['individual_hours'] ?? '' ?></td>
             <?php for ($s = 1; $s <= 8; $s++): ?>
             <td class="col-num" style="font-size:.75rem"><?= $dist[$s] ?? '' ?></td>
             <?php endfor ?>
@@ -469,7 +469,7 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
               <?php $w += $span; endwhile ?>
             </tr>
           <?php endforeach ?>
-          <?php if (empty($calendarRows)): ?><tr><td colspan="53" class="empty-cell">График не импортирован. Примените миграцию 002 и повторно загрузите РУПл.</td></tr><?php endif ?>
+          <?php if (empty($calendarRows)): ?><tr><td colspan="53" class="empty-cell">График учебного процесса пока не заполнен.</td></tr><?php endif ?>
           </tbody>
         </table>
       </div>
@@ -508,7 +508,7 @@ if (!in_array($activeTab, $allowedTabs, true)) $activeTab = 'plan';
               <td><?= htmlspecialchars((string)$r['total_weeks']) ?></td>
             </tr>
           <?php endforeach ?>
-          <?php if (empty($summaryRows)): ?><tr><td colspan="11" class="empty-cell">Сводные данные не импортированы. Примените миграцию 002 и повторно загрузите РУПл.</td></tr><?php endif ?>
+          <?php if (empty($summaryRows)): ?><tr><td colspan="11" class="empty-cell">Сводные данные пока не заполнены.</td></tr><?php endif ?>
           </tbody>
         </table>
       </div>

@@ -48,6 +48,24 @@ function _clean_upload_name(string $name): string
     return trim($name, '._') ?: 'rupl.xlsx';
 }
 
+function _curriculum_index_aliases(string $idx): array
+{
+    $base = trim($idx);
+    if ($base === '') return [];
+    $withoutDot = rtrim($base, '.');
+    $compact = preg_replace('/\s+/u', '', $withoutDot) ?? $withoutDot;
+    $items = [$base, $withoutDot, $compact, $compact . '.'];
+    return array_values(array_unique(array_filter($items, static fn($v) => $v !== '')));
+}
+
+function _curriculum_is_parent_section_code(string $idx): bool
+{
+    $code = str_replace(["\xc2\xa0", ' '], '', trim($idx));
+    if (function_exists('mb_strtoupper')) $code = mb_strtoupper($code, 'UTF-8');
+    else $code = strtoupper($code);
+    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
+}
+
 function _sum_credits(array $modules): float
 {
     $best = 0.0;
@@ -62,7 +80,7 @@ function _sum_credits(array $modules): float
     foreach ($modules as $m) {
         if (empty($m['is_summary']) && isset($m['credits']) && $m['credits'] !== null) {
             $idx = (string)($m['index_code'] ?? '');
-            if (str_contains($idx, '.') || in_array($m['module_type'] ?? '', ['ООД','К','Ф','ПА','ИА','ДП'], true)) {
+            if (!_curriculum_is_parent_section_code($idx) && (str_contains($idx, '.') || in_array($m['module_type'] ?? '', ['ООД','ООМ','К','Ф','ПА','ИА','ДП'], true))) {
                 $sum += (float)$m['credits'];
             }
         }
@@ -84,7 +102,7 @@ function _sum_hours(array $modules): int
     foreach ($modules as $m) {
         if (empty($m['is_summary']) && isset($m['total_hours']) && $m['total_hours'] !== null) {
             $idx = (string)($m['index_code'] ?? '');
-            if (str_contains($idx, '.') || in_array($m['module_type'] ?? '', ['ООД','К','Ф','ПА','ИА','ДП'], true)) {
+            if (!_curriculum_is_parent_section_code($idx) && (str_contains($idx, '.') || in_array($m['module_type'] ?? '', ['ООД','ООМ','К','Ф','ПА','ИА','ДП'], true))) {
                 $sum += (int)$m['total_hours'];
             }
         }
@@ -127,7 +145,7 @@ function _module_depth(array $m): int
 function _module_color(string $type): string
 {
     return match ($type) {
-        'ООД' => 'var(--color-primary)',
+        'ООД', 'ООМ' => 'var(--color-primary)',
         'БМ'  => 'var(--color-accent)',
         'ПМ'  => 'var(--color-success)',
         'ПА', 'ИА', 'ДП' => 'var(--color-warning)',
@@ -234,6 +252,20 @@ function _ensure_curriculum_extra_tables(PDO $pdo): void
     ")->fetchColumn();
     if ($hasComponentName === 0) {
         $pdo->exec("ALTER TABLE edu_curriculum_modules ADD COLUMN component_name TEXT NULL AFTER module_type");
+    }
+
+    // v45+: новые РУПл используют индекс/тип «ООМ».
+    // Старое поле module_type было ENUM без значения «ООМ», из-за этого
+    // такие строки либо не импортировались парсером, либо не могли сохраниться в БД.
+    $moduleTypeInfo = $pdo->query("
+        SELECT COLUMN_TYPE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'edu_curriculum_modules'
+          AND COLUMN_NAME = 'module_type'
+    ")->fetch(PDO::FETCH_ASSOC);
+    if ($moduleTypeInfo && strpos((string)$moduleTypeInfo['COLUMN_TYPE'], "'ООМ'") === false) {
+        $pdo->exec("ALTER TABLE edu_curriculum_modules MODIFY module_type ENUM('ООД','ООМ','БМ','ПМ','ПА','ИА','ДП','К','Ф','ИТОГО') NOT NULL DEFAULT 'ООД'");
     }
 }
 
@@ -378,9 +410,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_import'])) {
 
                     $moduleDbId = (int)$pdo->lastInsertId();
                     if ($mod['index_code'] !== '') {
-                        $indexToDbId[$mod['index_code']] = $moduleDbId;
-                        $compact = preg_replace('/\s+/u', '', $mod['index_code']);
-                        if ($compact !== $mod['index_code']) $indexToDbId[$compact] = $moduleDbId;
+                        foreach (_curriculum_index_aliases((string)$mod['index_code']) as $alias) {
+                            $indexToDbId[$alias] = $moduleDbId;
+                        }
                     }
 
                     foreach (($mod['distribution'] ?? []) as $semNum => $hours) {
@@ -509,7 +541,7 @@ if ($parsed && !empty($parsed['ok'])) {
     foreach ($parsed['modules'] as $m) {
         if (!empty($m['is_summary'])) continue;
         $idx = (string)($m['index_code'] ?? '');
-        if (str_contains($idx, '.') || in_array($m['module_type'], ['ООД','К','Ф','ПА','ИА','ДП'], true)) $totalSubjects++;
+        if (!_curriculum_is_parent_section_code($idx) && (str_contains($idx, '.') || in_array($m['module_type'], ['ООД','ООМ','К','Ф','ПА','ИА','ДП'], true))) $totalSubjects++;
         else $totalModules++;
     }
 }
@@ -704,10 +736,10 @@ $tdStyle = 'padding:.65rem 1rem;border-bottom:1px solid var(--color-divider);fon
         <span style="font-size:.875rem;color:var(--color-text-muted)"><?= count($parsed['modules']) ?> строк</span>
       </div>
       <div style="overflow:auto;max-height:520px">
-        <table style="width:100%;min-width:1100px;border-collapse:collapse">
+        <table style="width:100%;min-width:1350px;border-collapse:collapse">
           <thead>
             <tr>
-              <?php foreach (['Индекс','Модуль / дисциплина','Наименование','Кред.','Часов','Теория','Практика','СРСП','СРС','Экз.','Зач.','С1','С2','С3','С4','С5','С6','С7','С8'] as $th): ?>
+              <?php foreach (['Индекс','Модуль/дисц.','Название','Экз.','Зач.','Контр. раб.','Кред.','Часы','Теор.','Практ.','Курс.р.','СРСП','СРС','Произв. обуч.','Индив.','С1','С2','С3','С4','С5','С6','С7','С8'] as $th): ?>
               <th style="<?= $thStyle ?><?= str_starts_with($th, 'С') ? ';color:var(--color-primary)' : '' ?>"><?= _h($th) ?></th>
               <?php endforeach ?>
             </tr>
@@ -715,13 +747,13 @@ $tdStyle = 'padding:.65rem 1rem;border-bottom:1px solid var(--color-divider);fon
           <tbody>
           <?php if (!empty($parsed['semester_meta'])): ?>
             <tr style="background:var(--color-surface-offset);font-weight:700">
-              <td style="<?= $tdStyle ?>" colspan="11">Количество учебных недель</td>
+              <td style="<?= $tdStyle ?>" colspan="15">Количество учебных недель</td>
               <?php for ($s = 1; $s <= 8; $s++): ?>
               <td style="<?= $tdStyle ?>;text-align:center;color:var(--color-primary)"><?= _h($parsed['semester_meta'][$s]['study_weeks'] ?? '') ?></td>
               <?php endfor ?>
             </tr>
             <tr style="background:var(--color-surface-offset);font-weight:700">
-              <td style="<?= $tdStyle ?>" colspan="11">Итого в неделю</td>
+              <td style="<?= $tdStyle ?>" colspan="15">Итого в неделю</td>
               <?php for ($s = 1; $s <= 8; $s++): ?>
               <td style="<?= $tdStyle ?>;text-align:center;color:var(--color-primary)"><?= _h($parsed['semester_meta'][$s]['weekly_hours'] ?? '') ?></td>
               <?php endfor ?>
@@ -737,14 +769,18 @@ $tdStyle = 'padding:.65rem 1rem;border-bottom:1px solid var(--color-divider);fon
               <td style="<?= $tdStyle ?>;white-space:nowrap;color:<?= $typeColor ?>;font-weight:600"><?= _h($m['index_code']) ?></td>
               <td style="<?= $tdStyle ?>;min-width:190px"><?= _h(mb_strimwidth((string)($m['component_name'] ?? ''), 0, 70, '…')) ?></td>
               <td style="<?= $tdStyle ?>;min-width:300px;padding-left:<?= 1 + $depth * 1.25 ?>rem"><?= _h(mb_strimwidth((string)$m['name'], 0, 100, '…')) ?></td>
+              <td style="<?= $tdStyle ?>"><?= _h($m['exam_semester'] ?? '') ?></td>
+              <td style="<?= $tdStyle ?>"><?= _h($m['credit_semester'] ?? '') ?></td>
+              <td style="<?= $tdStyle ?>"><?= _h($m['control_work'] ?? '') ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['credits'] !== null ? _h($m['credits']) : '' ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['total_hours'] ?? '' ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['theory_hours'] ?? '' ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['practice_hours'] ?? '' ?></td>
+              <td style="<?= $tdStyle ?>"><?= $m['coursework_hours'] ?? '' ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['srsp_hours'] ?? '' ?></td>
               <td style="<?= $tdStyle ?>"><?= $m['srs_hours'] ?? '' ?></td>
-              <td style="<?= $tdStyle ?>"><?= _h($m['exam_semester'] ?? '') ?></td>
-              <td style="<?= $tdStyle ?>"><?= _h($m['credit_semester'] ?? '') ?></td>
+              <td style="<?= $tdStyle ?>"><?= $m['production_hours'] ?? '' ?></td>
+              <td style="<?= $tdStyle ?>"><?= $m['individual_hours'] ?? '' ?></td>
               <?php for ($s = 1; $s <= 8; $s++): ?>
               <td style="<?= $tdStyle ?>;text-align:center;color:<?= isset($m['distribution'][$s]) ? 'var(--color-primary)' : 'var(--color-text-faint)' ?>;font-weight:<?= isset($m['distribution'][$s]) ? '600' : '400' ?>">
                 <?= $m['distribution'][$s] ?? '' ?>

@@ -60,6 +60,30 @@ function edu_grade_lower($value): string
     return strtolower($value);
 }
 
+
+function edu_grade_is_ro_index(string $code): bool
+{
+    return (bool)preg_match('/^РО\s*\d+(?:\s*\.\s*\d+)+\s*\.?$/u', trim($code));
+}
+
+function edu_grade_module_display_name(array $module): string
+{
+    $component = trim((string)($module['component_name'] ?? ''));
+    if ($component !== '') return $component;
+    return trim((string)($module['name'] ?? ''));
+}
+
+function edu_grade_module_label(array $module): string
+{
+    $code = trim((string)($module['index_code'] ?? ''));
+    $name = edu_grade_module_display_name($module);
+    if ($name === '') return $code;
+
+    // Для РУПл формата «учебный план РО» показываем дисциплину из component_name,
+    // но код результата обучения оставляем в начале, как в исходном РУПл.
+    return $code !== '' ? ($code . ' — ' . $name) : $name;
+}
+
 function edu_grade_is_assessable_module(array $module): bool
 {
     // Исключаем только служебные строки РУПл.
@@ -72,7 +96,7 @@ function edu_grade_is_assessable_module(array $module): bool
     // Родительские разделы РУПл вида "ООМ 1", "БМ 2", "ПМ 8" не являются
     // дисциплинами для выставления оценок. Оставляем только подразделы:
     // "ООМ 1.1", "БМ 2.3", "ПМ 8.1" и т.п.
-    if ($code !== '' && preg_match('/^(ООМ|БМ|ПМ)\d+$/u', $code)) {
+    if ($code !== '' && preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code)) {
         return false;
     }
 
@@ -281,7 +305,7 @@ function edu_grade_load_module_by_id(PDO $pdo, int $moduleId, int $semester = 0)
 function edu_grade_module_option_payload(array $m): array
 {
     $sems = implode(',', $m['_semesters'] ?? edu_grade_module_semesters($m));
-    $label = trim(((string)($m['index_code'] ?? '') !== '' ? $m['index_code'] . ' — ' : '') . (string)($m['name'] ?? ''));
+    $label = edu_grade_module_label($m);
     $hours = (int)($m['total_hours'] ?? 0);
     $credits = (float)($m['credits'] ?? 0);
 
@@ -303,13 +327,24 @@ function edu_grade_find_or_create_subject(PDO $pdo, array $module): ?int
     $subjectId = (int)($module['subject_id'] ?? 0);
     if ($subjectId > 0) return $subjectId;
 
-    $code = trim((string)($module['index_code'] ?? ''));
-    if ($code === '') $code = 'RUPL-' . (int)$module['id'];
-    $name = trim((string)($module['name'] ?? ''));
+    $sourceCode = trim((string)($module['index_code'] ?? ''));
+    $name = edu_grade_module_display_name($module);
     if ($name === '') return null;
 
-    $find = $pdo->prepare('SELECT id FROM edu_subjects WHERE code = ? OR name_ru = ? ORDER BY id LIMIT 1');
-    $find->execute([$code, $name]);
+    // У РО-строк код «РО 1.1.» повторяется в разных модулях и у разных дисциплин.
+    // Для технической записи edu_subjects используем уникальный код модуля РУПл,
+    // иначе разные дисциплины склеиваются по одному subject_id.
+    $code = ($sourceCode !== '' && !edu_grade_is_ro_index($sourceCode))
+        ? $sourceCode
+        : ('RUPL-' . (int)$module['id']);
+
+    if (str_starts_with($code, 'RUPL-')) {
+        $find = $pdo->prepare('SELECT id FROM edu_subjects WHERE code = ? ORDER BY id LIMIT 1');
+        $find->execute([$code]);
+    } else {
+        $find = $pdo->prepare('SELECT id FROM edu_subjects WHERE code = ? OR name_ru = ? ORDER BY id LIMIT 1');
+        $find->execute([$code, $name]);
+    }
     $found = $find->fetchColumn();
     if ($found) return (int)$found;
 
@@ -344,10 +379,7 @@ function edu_grade_find_or_create_semester(PDO $pdo, array $group, int $curricul
 function edu_grade_row_has_value(array $row): bool
 {
     return $row['grade'] !== null
-        || (int)($row['passed'] ?? 0) === 1
-        || (int)($row['absent'] ?? 0) === 1
-        || trim((string)($row['comment'] ?? '')) !== ''
-        || !empty($row['date']);
+        || trim((string)($row['comment'] ?? '')) !== '';
 }
 
 function edu_grade_sync_sheet_students(PDO $pdo, int $sheetId, int $groupId, int $moduleId, int $curriculumSemester): void
@@ -599,10 +631,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
                 $sheetId = edu_grade_ensure_sheet($pdo, $activeGroup, $activeModule, $currentSemester, $userId);
             }
             $grades = $_POST['grade'] ?? [];
-            $passed = $_POST['passed'] ?? [];
-            $absent = $_POST['absent'] ?? [];
             $comments = $_POST['comment'] ?? [];
-            $date = trim((string)($_POST['grade_date'] ?? date('Y-m-d')));
 
             $rows = $pdo->prepare('SELECT student_id FROM edu_grades WHERE grade_sheet_id = ?');
             $rows->execute([$sheetId]);
@@ -610,10 +639,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
             $hasGradeModule = edu_grade_table_column_exists($pdo, 'edu_grades', 'curriculum_module_id');
             $hasGradeSemester = edu_grade_table_column_exists($pdo, 'edu_grades', 'curriculum_semester');
             if ($hasGradeModule && $hasGradeSemester) {
-                $upd = $pdo->prepare("\n                    UPDATE edu_grades\n                    SET grade = ?, passed = ?, absent = ?, comment = ?, date = ?,
+                $upd = $pdo->prepare("\n                    UPDATE edu_grades\n                    SET grade = ?, passed = 0, absent = 0, comment = ?, date = NULL,
                         curriculum_module_id = ?, curriculum_semester = ?, updated_at = NOW()\n                    WHERE grade_sheet_id = ? AND student_id = ?\n                ");
             } else {
-                $upd = $pdo->prepare("\n                    UPDATE edu_grades\n                    SET grade = ?, passed = ?, absent = ?, comment = ?, date = ?, updated_at = NOW()\n                    WHERE grade_sheet_id = ? AND student_id = ?\n                ");
+                $upd = $pdo->prepare("\n                    UPDATE edu_grades\n                    SET grade = ?, passed = 0, absent = 0, comment = ?, date = NULL, updated_at = NOW()\n                    WHERE grade_sheet_id = ? AND student_id = ?\n                ");
             }
 
             foreach ($rows->fetchAll(PDO::FETCH_COLUMN) as $sid) {
@@ -625,10 +654,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
 
                 $baseParams = [
                     $grade,
-                    isset($passed[$sid]) ? 1 : 0,
-                    isset($absent[$sid]) ? 1 : 0,
                     trim((string)($comments[$sid] ?? '')) ?: null,
-                    $date ?: null,
                 ];
 
                 if ($hasGradeModule && $hasGradeSemester) {
@@ -728,7 +754,7 @@ $sqlSheets = "
               JOIN edu_students s_gr ON s_gr.id = eg.student_id
              WHERE eg.grade_sheet_id = gs.id
                AND s_gr.group_id = gs.group_id
-               AND (eg.grade IS NOT NULL OR eg.passed = 1 OR eg.absent = 1)) AS graded_count
+               AND eg.grade IS NOT NULL) AS graded_count
     FROM edu_grade_sheets gs
     LEFT JOIN edu_groups g ON g.id = gs.group_id
     LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id
@@ -766,7 +792,7 @@ if ($recentFilterFill === 'complete') {
 }
 if ($recentWhere) $sqlSheets .= ' WHERE ' . implode(' AND ', $recentWhere);
 if ($recentHaving) $sqlSheets .= ' HAVING ' . implode(' AND ', $recentHaving);
-$sqlSheets .= ' ORDER BY gs.updated_at DESC, gs.created_at DESC, gs.id DESC LIMIT 30';
+$sqlSheets .= ' ORDER BY gs.updated_at DESC, gs.created_at DESC, gs.id DESC LIMIT 100';
 $recentSheetsError = '';
 try {
     $stmtSheets = $pdo->prepare($sqlSheets);
@@ -901,7 +927,7 @@ $breadcrumbs = [
       <div class="selection-summary">
         <div><span>Группа</span><strong><?= htmlspecialchars($activeGroup['name']) ?></strong></div>
         <div><span>Семестр РУПл</span><strong><?= $currentSemester ?> семестр</strong></div>
-        <div><span>Дисциплина РУПл</span><strong><?= htmlspecialchars(trim(($activeModule['index_code'] ? $activeModule['index_code'].' — ' : '') . $activeModule['name'])) ?></strong></div>
+        <div><span>Дисциплина РУПл</span><strong><?= htmlspecialchars(edu_grade_module_label($activeModule)) ?></strong></div>
         <div><span>Тип</span><strong><?= htmlspecialchars($TYPE_LABELS[$activeSheet['type']] ?? $activeSheet['type']) ?></strong></div>
       </div>
       <?php if ($students): ?>
@@ -911,15 +937,10 @@ $breadcrumbs = [
         <input type="hidden" name="curriculum_semester" value="<?= (int)$currentSemester ?>">
         <input type="hidden" name="module_id" value="<?= (int)$currentModuleId ?>">
         <input type="hidden" name="sheet_id" value="<?= (int)($activeSheet['id'] ?? $currentSheetId) ?>">
-        <div style="padding:.75rem 1.25rem;background:var(--color-surface-2);border-bottom:1px solid var(--color-divider);display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
-          <label style="font-size:.8125rem;font-weight:600;color:var(--color-text-muted)">Дата:</label>
-          <input type="date" name="grade_date" class="grade-input" style="width:auto" value="<?= date('Y-m-d') ?>" <?= !$canSave ? 'disabled' : '' ?>>
-          <span class="muted-note">Оценка указывается по 100-балльной шкале. Для зачёта можно поставить «Зачтено».</span>
-        </div>
         <div class="table-wrapper">
           <table class="grades-table">
             <thead>
-              <tr><th style="width:60px">#</th><th>Студент</th><th style="width:130px">Балл</th><th style="width:110px">Зачтено</th><th style="width:90px">Н/я</th><th>Комментарий</th></tr>
+              <tr><th style="width:60px">#</th><th>Студент</th><th style="width:130px">Балл</th><th>Комментарий</th></tr>
             </thead>
             <tbody>
             <?php foreach ($students as $i => $s): ?>
@@ -930,8 +951,6 @@ $breadcrumbs = [
                   <div class="muted-note">ИИН: <?= htmlspecialchars($s['iin'] ?? '—') ?></div>
                 </td>
                 <td><input class="grade-input" type="number" name="grade[<?= (int)$s['student_id'] ?>]" min="0" max="100" step="1" value="<?= $s['grade'] !== null ? htmlspecialchars((string)(int)$s['grade']) : '' ?>" <?= !$canSave ? 'disabled' : '' ?>></td>
-                <td style="text-align:center"><input type="checkbox" name="passed[<?= (int)$s['student_id'] ?>]" value="1" <?= !empty($s['passed']) ? 'checked' : '' ?> <?= !$canSave ? 'disabled' : '' ?>></td>
-                <td style="text-align:center"><input type="checkbox" name="absent[<?= (int)$s['student_id'] ?>]" value="1" <?= !empty($s['absent']) ? 'checked' : '' ?> <?= !$canSave ? 'disabled' : '' ?>></td>
                 <td><input class="comment-input" type="text" name="comment[<?= (int)$s['student_id'] ?>]" value="<?= htmlspecialchars($s['comment'] ?? '') ?>" <?= !$canSave ? 'disabled' : '' ?>></td>
               </tr>
             <?php endforeach ?>
@@ -1008,7 +1027,9 @@ $breadcrumbs = [
           <tbody>
           <?php foreach ($recentSheets as $i => $sh):
             $pct = (int)$sh['student_count'] > 0 ? round((int)$sh['graded_count'] / (int)$sh['student_count'] * 100) : 0;
-            $moduleTitle = trim((($sh['module_code'] ?? '') ? $sh['module_code'] . ' — ' : '') . ($sh['module_name'] ?: $sh['subject_name']));
+            $moduleCode = trim((string)($sh['module_code'] ?? ''));
+            $moduleName = trim((string)($sh['module_name'] ?: $sh['subject_name']));
+            $moduleTitle = trim(($moduleCode !== '' ? $moduleCode . ' — ' : '') . $moduleName);
           ?>
             <tr>
               <td style="color:var(--color-text-muted)"><?= $i + 1 ?></td>
@@ -1019,7 +1040,9 @@ $breadcrumbs = [
               <td style="color:var(--color-text-muted)"><?= htmlspecialchars($sh['teacher_name'] ?? '—') ?></td>
               <td>
                 <div class="action-btns">
-                  <a href="grade_sheets.php?sheet_id=<?= (int)$sh['id'] ?>" class="btn btn-primary" style="padding:.3rem .7rem;font-size:.8125rem">Открыть</a>
+                  <a href="grade_sheets.php?sheet_id=<?= (int)$sh['id'] ?>" class="btn btn-outline" style="padding:.3rem .6rem;font-size:.8125rem">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </a>
                   <?php if ($isAdmin): ?>
                   <a href="grade_sheets.php?delete=<?= (int)$sh['id'] ?>" class="btn btn-danger" style="padding:.3rem .6rem;font-size:.8125rem" onclick="return confirm('Удалить запись оценок?')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>

@@ -60,7 +60,7 @@ function edu_ajax_is_assessable_module(array $row): bool
 
     // Не отдаём в AJAX родительские разделы: "ООМ 1", "БМ 2", "ПМ 8".
     // Нужны только реальные подразделы/дисциплины: "ООМ 1.1" и т.п.
-    if ($code !== '' && preg_match('/^(ООМ|БМ|ПМ)\d+$/u', $code)) return false;
+    if ($code !== '' && preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code)) return false;
 
     if ($code !== '' && (preg_match('/^ПА\d*$/u', $code) || preg_match('/^К\d*$/u', $code) || $code === 'Ф')) return false;
     if ($type !== '' && (preg_match('/^ПА\d*$/u', $type) || preg_match('/^К\d*$/u', $type))) return false;

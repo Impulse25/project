@@ -18,6 +18,7 @@ class CurriculumParser
 
     private const MODULE_TYPES = [
         'ООД' => 'ООД',
+        'ООМ' => 'ООМ',
         'БМ'  => 'БМ',
         'ПМ'  => 'ПМ',
         'ПА'  => 'ПА',
@@ -324,16 +325,30 @@ class CurriculumParser
         $items = [];
         $order = 0;
         $maxRow = (int)$ws->getHighestDataRow();
+        $maxCol = min(Coordinate::columnIndexFromString($ws->getHighestColumn()), 12);
 
         for ($r = 1; $r <= $maxRow; $r++) {
-            $code = $this->normText($this->cellValue($ws, 1, $r));
-            $desc = $this->normText($this->cellValue($ws, 2, $r));
-            if (!preg_match('/^К\d+$/u', $code) || $desc === '') continue;
-            $items[] = [
-                'code'       => $code,
-                'name'       => $desc,
-                'sort_order' => ++$order,
-            ];
+            for ($c = 1; $c <= $maxCol; $c++) {
+                $code = $this->normText($this->cellValue($ws, $c, $r));
+                if (!preg_match('/^К\s*\d+\.?$/u', $code)) continue;
+
+                $desc = '';
+                for ($dc = $c + 1; $dc <= min($maxCol, $c + 3); $dc++) {
+                    $candidate = $this->normText($this->cellValue($ws, $dc, $r));
+                    if ($candidate !== '') {
+                        $desc = $candidate;
+                        break;
+                    }
+                }
+                if ($desc === '') continue 2;
+
+                $items[] = [
+                    'code'       => $code,
+                    'name'       => $desc,
+                    'sort_order' => ++$order,
+                ];
+                continue 2;
+            }
         }
 
         return $items;
@@ -366,11 +381,12 @@ class CurriculumParser
 
         $modules = [];
         $parentStack = [];
+        $parentTypes = [];
         $order = 0;
         $maxRow = (int)$ws->getHighestDataRow();
 
         for ($ri = 1; $ri <= $maxRow; $ri++) {
-            $idx   = $this->normText($this->cellValue($ws, $layout['index'], $ri));
+            $idx   = $this->normalizeIndexCode($this->normText($this->cellValue($ws, $layout['index'], $ri)));
             $componentName = '';
             if (!empty($layout['component'])) {
                 $componentName = $this->normText($this->cellValue($ws, (int)$layout['component'], $ri));
@@ -381,11 +397,22 @@ class CurriculumParser
             if ($idx === '1' && ($name2 === '2' || str_contains(mb_strtolower($name2), 'количество'))) continue;
             if (is_numeric($idx) && (int)$idx < 40 && $name2 === '') continue;
 
+            if (($this->isLearningOutcomeIndex($idx) || $this->isChildDisciplineIndex($idx)) && $componentName === '') {
+                [$name2, $componentName] = $this->splitLearningOutcomeName($name2);
+            }
+
             $nameLow = mb_strtolower($name2);
             if (str_contains($nameLow, 'количество учебных недель') || str_contains($nameLow, 'итого в неделю')) continue;
             $isTotal = (str_contains($nameLow, 'итого') || str_contains($nameLow, 'всего'));
 
             $moduleType = $this->detectModuleType($idx, $name2);
+            $parentKey = null;
+            if (!$moduleType && $this->isLearningOutcomeIndex($idx)) {
+                $parentKey = $this->detectParent($idx, $parentStack);
+                if ($parentKey !== null && isset($parentTypes[$parentKey])) {
+                    $moduleType = $parentTypes[$parentKey];
+                }
+            }
             if (!$moduleType && !$isTotal) continue;
 
             $credits    = $this->floatVal($this->cellValue($ws, $layout['credits'], $ri));
@@ -409,7 +436,26 @@ class CurriculumParser
                 }
             }
 
-            $parentKey = $this->detectParent($idx, $parentStack);
+            $hasUsefulValues = ($credits !== null && $credits > 0)
+                || ($totalHours !== null && $totalHours > 0)
+                || ($theory !== null && $theory > 0)
+                || ($practice !== null && $practice > 0)
+                || ($coursework !== null && $coursework > 0)
+                || ($srsp !== null && $srsp > 0)
+                || ($srs !== null && $srs > 0)
+                || ($production !== null && $production > 0)
+                || ($individual !== null && $individual > 0)
+                || $exam !== null
+                || $credit !== null
+                || $ctrlWork !== null
+                || !empty($distribution);
+            if (!$isTotal && $name2 === '' && $componentName === '' && !$hasUsefulValues) {
+                continue;
+            }
+
+            if ($parentKey === null) {
+                $parentKey = $this->detectParent($idx, $parentStack);
+            }
 
             $module = [
                 '_order'           => ++$order,
@@ -437,9 +483,11 @@ class CurriculumParser
 
             $modules[] = $module;
             if ($idx !== '') {
-                $parentStack[$idx] = count($modules) - 1;
-                $compactIdx = preg_replace('/\s+/u', '', $idx);
-                if ($compactIdx !== $idx) $parentStack[$compactIdx] = count($modules) - 1;
+                $moduleIndex = count($modules) - 1;
+                foreach ($this->indexAliases($idx) as $alias) {
+                    $parentStack[$alias] = $moduleIndex;
+                    $parentTypes[$alias] = $module['module_type'];
+                }
             }
         }
 
@@ -550,6 +598,7 @@ class CurriculumParser
         }
 
         $semActualCols = array_values($semesters);
+        $firstSemesterCol = $semActualCols ? min($semActualCols) : null;
         $hasSeparatePractice = isset($logical[15]) && !in_array($logical[15], $semActualCols, true);
 
         $indexCol = $logical[1] ?? self::FALLBACK_COL['index'];
@@ -560,6 +609,27 @@ class CurriculumParser
             // например ПМ 8.1 | Производственная практика | РО 8.1...
             // Раньше эта колонка терялась, из-за чего практики выводились как РО.
             $componentCol = $indexCol + 1;
+        }
+
+        $headerRowLimit = $bestRow !== null ? min($maxRow, $bestRow) : min($maxRow, 8);
+        $individualHeaderCol = $this->findHeaderColumn($ws, ['индивидуаль'], 1, $headerRowLimit, 1, $firstSemesterCol ? $firstSemesterCol - 1 : $maxCol);
+        $individualCol = $individualHeaderCol
+            ?? ($firstSemesterCol ? max(1, $firstSemesterCol - 1) : null)
+            ?? ($hasSeparatePractice ? ($logical[15] ?? null) : ($logical[14] ?? null))
+            ?? self::FALLBACK_COL['individual'];
+
+        $srsCol = $logical[12] ?? self::FALLBACK_COL['srs'];
+        if ($individualCol > $srsCol + 1) {
+            $productionCols = range($srsCol + 1, $individualCol - 1);
+        } else {
+            $productionHeaderCols = $this->findHeaderColumns($ws, ['производствен', 'профессиональн'], 1, $headerRowLimit, 1, $firstSemesterCol ? $firstSemesterCol - 1 : $maxCol);
+            if ($productionHeaderCols) {
+                $productionCols = array_values(array_filter($productionHeaderCols, static fn($c) => $c < $individualCol));
+            } else {
+                $productionCols = $hasSeparatePractice
+                    ? array_values(array_filter([$logical[13] ?? null, $logical[14] ?? null]))
+                    : [($logical[13] ?? self::FALLBACK_COL['production'])];
+            }
         }
 
         return [
@@ -576,10 +646,8 @@ class CurriculumParser
             'coursework'      => $logical[10] ?? self::FALLBACK_COL['coursework'],
             'srsp'            => $logical[11] ?? self::FALLBACK_COL['srsp'],
             'srs'             => $logical[12] ?? self::FALLBACK_COL['srs'],
-            'production_cols' => $hasSeparatePractice
-                                    ? array_values(array_filter([$logical[13] ?? null, $logical[14] ?? null]))
-                                    : [($logical[13] ?? self::FALLBACK_COL['production'])],
-            'individual'      => $hasSeparatePractice ? $logical[15] : ($logical[14] ?? self::FALLBACK_COL['individual']),
+            'production_cols' => $productionCols,
+            'individual'      => $individualCol,
             'semesters'       => $semesters,
             '_number_row'     => $bestRow,
         ];
@@ -603,34 +671,126 @@ class CurriculumParser
     private function detectParent(string $idx, array $parentStack): ?string
     {
         if ($idx === '') return null;
-        $compact = preg_replace('/\s+/u', '', $idx);
+        $idxClean = rtrim(trim($idx), '.');
 
-        if (preg_match('/^([\p{L}]+)\s*(\d+)\.(\d+)$/u', $idx, $m)) {
-            $tryParent1 = $m[1] . ' ' . $m[2];
-            $tryParent2 = $m[1] . $m[2];
-            if (isset($parentStack[$tryParent1])) return $tryParent1;
-            if (isset($parentStack[$tryParent2])) return $tryParent2;
+        // В РУПл формата «учебный план РО» дисциплины идут строками РО 1.1, РО 1.2...
+        // Родитель при этом находится выше как ООМ 1 / ПМ 1 / БМ 1.
+        if (preg_match('/^РО\s*(\d+)\.(\d+)/u', $idxClean, $m)) {
+            $bestAlias = null;
+            $bestPos = -1;
+            foreach (['ООМ', 'БМ', 'ПМ'] as $prefix) {
+                foreach ($this->indexAliases($prefix . ' ' . $m[1]) as $alias) {
+                    if (isset($parentStack[$alias]) && $parentStack[$alias] > $bestPos) {
+                        $bestAlias = $alias;
+                        $bestPos = $parentStack[$alias];
+                    }
+                }
+            }
+            if ($bestAlias !== null) return $bestAlias;
+        }
+
+        if (preg_match('/^([\p{L}]+)\s*(\d+)\.(\d+)/u', $idxClean, $m)) {
+            foreach ($this->indexAliases($m[1] . ' ' . $m[2]) as $alias) {
+                if (isset($parentStack[$alias])) return $alias;
+            }
             if (isset($parentStack[$m[1]])) return $m[1];
         }
 
-        if (preg_match('/^([\p{L}]+)\s*(\d+)$/u', $idx)) {
+        if (preg_match('/^([\p{L}]+)\s*(\d+)$/u', $idxClean)) {
             return null;
         }
 
-        if ($compact !== $idx && isset($parentStack[$compact])) return $compact;
+        foreach ($this->indexAliases($idxClean) as $alias) {
+            if (isset($parentStack[$alias])) return $alias;
+        }
         return null;
     }
 
     private function findPlanSheets(array $names): array
     {
-        $items = [];
+        $regular = [];
+        $resultOriented = [];
         foreach ($names as $sn) {
             $sl = mb_strtolower(trim($sn));
             if (!str_contains($sl, 'учебный') || !str_contains($sl, 'план')) continue;
-            if (str_contains($sl, ' ро') || str_ends_with($sl, 'ро')) continue;
-            $items[] = $sn;
+            if (str_contains($sl, ' ро') || str_ends_with($sl, 'ро')) {
+                $resultOriented[] = $sn;
+                continue;
+            }
+            $regular[] = $sn;
         }
-        return $items;
+        return array_merge($regular, $resultOriented);
+    }
+
+    private function normalizeIndexCode(string $idx): string
+    {
+        $idx = $this->normText($idx);
+        if ($idx === '') return '';
+        $idx = preg_replace('/\s+([.])/u', '$1', $idx) ?? $idx;
+        $idx = preg_replace('/^([\p{L}]+)(\d)/u', '$1 $2', $idx) ?? $idx;
+        $idx = preg_replace('/\s+/u', ' ', $idx) ?? $idx;
+        return trim($idx);
+    }
+
+    private function isLearningOutcomeIndex(string $idx): bool
+    {
+        return (bool)preg_match('/^РО\s*\d+(?:\s*\.\s*\d+)+\s*\.?$/u', trim($idx));
+    }
+
+    private function isChildDisciplineIndex(string $idx): bool
+    {
+        return (bool)preg_match('/^[\p{L}]+\s*\d+\s*\.\s*\d+/u', trim($idx));
+    }
+
+    private function splitLearningOutcomeName(string $value): array
+    {
+        $value = $this->normText($value);
+        if ($value === '' || !str_contains($value, '/')) {
+            return [$value, ''];
+        }
+
+        [$left, $right] = array_pad(preg_split('/\s*\/\s*/u', $value, 2), 2, '');
+        $left = $this->normText($left);
+        $right = $this->normText($right);
+        if ($left === '' || $right === '') {
+            return [$value, ''];
+        }
+        return [$left, $right];
+    }
+
+    private function indexAliases(string $idx): array
+    {
+        $base = trim($idx);
+        if ($base === '') return [];
+        $withoutDot = rtrim($base, '.');
+        $compact = preg_replace('/\s+/u', '', $withoutDot) ?? $withoutDot;
+        $items = [$base, $withoutDot, $compact, $compact . '.'];
+        return array_values(array_unique(array_filter($items, static fn($v) => $v !== '')));
+    }
+
+    private function findHeaderColumn(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $ws, array $needles, int $fromRow, int $toRow, int $fromCol, int $toCol): ?int
+    {
+        $cols = $this->findHeaderColumns($ws, $needles, $fromRow, $toRow, $fromCol, $toCol);
+        return $cols[0] ?? null;
+    }
+
+    private function findHeaderColumns(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $ws, array $needles, int $fromRow, int $toRow, int $fromCol, int $toCol): array
+    {
+        $found = [];
+        for ($r = $fromRow; $r <= $toRow; $r++) {
+            for ($c = $fromCol; $c <= $toCol; $c++) {
+                $text = mb_strtolower($this->normText($this->cellValue($ws, $c, $r)));
+                if ($text === '') continue;
+                foreach ($needles as $needle) {
+                    if (str_contains($text, mb_strtolower($needle))) {
+                        $found[$c] = $c;
+                        break;
+                    }
+                }
+            }
+        }
+        ksort($found, SORT_NUMERIC);
+        return array_values($found);
     }
 
     /**

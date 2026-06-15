@@ -33,7 +33,7 @@ $curricula = $pdo->query("
               FROM edu_curriculum_modules m
              WHERE m.curriculum_id = c.id
                AND m.is_summary = 0
-               AND NOT (REPLACE(REPLACE(UPPER(COALESCE(m.index_code, '')), ' ', ''), CHAR(194,160), '') REGEXP '^(ООМ|БМ|ПМ)[0-9]+$')
+               AND NOT (REPLACE(REPLACE(UPPER(COALESCE(m.index_code, '')), ' ', ''), CHAR(194,160), '') REGEXP '^(ООМ|БМ|ПМ)([0-9]+\\.?)?$')
            ) AS module_count,
            (SELECT COUNT(*) FROM edu_groups g WHERE g.curriculum_id = c.id) AS groups_count
     FROM edu_curricula c

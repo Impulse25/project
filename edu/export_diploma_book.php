@@ -101,13 +101,13 @@ function edu_diploma_norm_token($value): string
 function edu_diploma_is_parent_section(array $module): bool
 {
     $code = edu_diploma_norm_token($module['index_code'] ?? '');
-    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)\d+$/u', $code);
+    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
 }
 
 function edu_diploma_group_title(?string $moduleType): string
 {
     $type = mb_strtoupper(trim((string)$moduleType), 'UTF-8');
-    if ($type === '' || str_contains($type, 'ООД')) return 'Общеобразовательные модули';
+    if ($type === '' || str_contains($type, 'ООД') || str_contains($type, 'ООМ')) return 'Общеобразовательные модули';
     if (str_contains($type, 'БМ')) return 'Базовые модули';
     if (str_contains($type, 'ПМ')) return 'Профессиональные модули';
     return $moduleType ?: 'Другие модули';

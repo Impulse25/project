@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS edu_curriculum_modules (
     curriculum_id    INT UNSIGNED NOT NULL,
     parent_id        INT UNSIGNED NULL,
     index_code       VARCHAR(20) NOT NULL DEFAULT '',
-    module_type      ENUM('ООД','БМ','ПМ','ПА','ИА','ДП','К','Ф','ИТОГО') NOT NULL DEFAULT 'ООД',
+    module_type      ENUM('ООД','ООМ','БМ','ПМ','ПА','ИА','ДП','К','Ф','ИТОГО') NOT NULL DEFAULT 'ООД',
     component_name   TEXT NULL,
     name             TEXT NOT NULL,
     credits          DECIMAL(5,2) NULL,

@@ -42,8 +42,8 @@ if (!$sheetId) { header('Location: grade_sheets.php'); exit; }
 $stmt = $pdo->prepare("
     SELECT gs.*,
            g.name AS group_name, g.curator_id,
-           COALESCE(NULLIF(m.name, ''), sub.name_ru) AS subject_name,
-           COALESCE(NULLIF(m.index_code, ''), sub.code) AS subject_code,
+           COALESCE(NULLIF(TRIM(m.component_name), ''), NULLIF(TRIM(m.name), ''), sub.name_ru) AS subject_name,
+           COALESCE(NULLIF(TRIM(m.index_code), ''), sub.code) AS subject_code,
            m.id AS module_id, m.curriculum_id AS module_curriculum_id,
            sem.year_start, sem.year_end, sem.semester_num,
            u.full_name AS teacher_name
@@ -58,6 +58,11 @@ $stmt = $pdo->prepare("
 $stmt->execute([$sheetId]);
 $sheet = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$sheet) { header('Location: grade_sheets.php'); exit; }
+
+$sheetSubjectCode = trim((string)($sheet['subject_code'] ?? ''));
+$sheetSubjectName = trim((string)($sheet['subject_name'] ?? ''));
+$sheetSubjectTitle = trim(($sheetSubjectCode !== '' ? $sheetSubjectCode . ' — ' : '') . $sheetSubjectName);
+if ($sheetSubjectTitle === '') $sheetSubjectTitle = $sheetSubjectName !== '' ? $sheetSubjectName : $sheetSubjectCode;
 
 $accessibleGroupIds = edu_accessible_group_ids($pdo, $userId, $role);
 // Проверка доступа: admin/director или доступная группа преподавателя
@@ -76,23 +81,20 @@ $message = ''; $messageType = '';
 // ── Сохранение оценок ─────────────────────────────────────────────────────
 if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
     $grades   = $_POST['grade']   ?? [];
-    $absents  = $_POST['absent']  ?? [];
-    $passed   = $_POST['passed']  ?? [];
     $comments = $_POST['comment'] ?? [];
-    $date     = trim($_POST['grade_date'] ?? '');
 
     $hasGradeModule = edu_grades_column_exists($pdo, 'curriculum_module_id');
     $hasGradeSemester = edu_grades_column_exists($pdo, 'curriculum_semester');
     if ($hasGradeModule && $hasGradeSemester) {
         $upd = $pdo->prepare("
             UPDATE edu_grades
-            SET grade=?, passed=?, absent=?, comment=?, date=?, curriculum_module_id=?, curriculum_semester=?, updated_at=NOW()
+            SET grade=?, passed=0, absent=0, comment=?, date=NULL, curriculum_module_id=?, curriculum_semester=?, updated_at=NOW()
             WHERE grade_sheet_id=? AND student_id=?
         ");
     } else {
         $upd = $pdo->prepare("
             UPDATE edu_grades
-            SET grade=?, passed=?, absent=?, comment=?, date=?, updated_at=NOW()
+            SET grade=?, passed=0, absent=0, comment=?, date=NULL, updated_at=NOW()
             WHERE grade_sheet_id=? AND student_id=?
         ");
     }
@@ -109,14 +111,11 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grad
             if ($rawGrade !== '' && $g === null) {
                 throw new PDOException('Оценка должна быть числом от 0 до 100.');
             }
-            $abs     = isset($absents[$sid])   ? 1 : 0;
-            $pas     = isset($passed[$sid])    ? 1 : 0;
             $com     = isset($comments[$sid])  ? trim($comments[$sid]) : null;
-            $d       = $date ?: null;
             if ($hasGradeModule && $hasGradeSemester) {
-                $upd->execute([$g, $pas, $abs, $com ?: null, $d, (int)($sheet['curriculum_module_id'] ?? 0) ?: null, (int)($sheet['curriculum_semester'] ?? 0) ?: null, $sheetId, $sid]);
+                $upd->execute([$g, $com ?: null, (int)($sheet['curriculum_module_id'] ?? 0) ?: null, (int)($sheet['curriculum_semester'] ?? 0) ?: null, $sheetId, $sid]);
             } else {
-                $upd->execute([$g, $pas, $abs, $com ?: null, $d, $sheetId, $sid]);
+                $upd->execute([$g, $com ?: null, $sheetId, $sid]);
             }
         }
         $pdo->commit();
@@ -143,16 +142,14 @@ $students = $studentRows->fetchAll(PDO::FETCH_ASSOC);
 
 // Статистика
 $graded  = array_filter($students, fn($s) => $s['grade'] !== null);
-$absent  = array_filter($students, fn($s) => $s['absent']);
 $avg     = count($graded) ? round(array_sum(array_map(fn($g) => (int)$g['grade'], $graded)) / count($graded), 2) : null;
 $total   = count($students);
 
 $TYPE_LABELS   = ['exam'=>'Экзамен','credit'=>'Зачёт','coursework'=>'Курсовая','practice'=>'Практика','current'=>'Тек. контроль'];
 $STATUS_LABELS = ['draft'=>'Черновик','submitted'=>'На проверке','approved'=>'Утверждена','rejected'=>'Доработка'];
 $STATUS_BADGE  = ['draft'=>'badge-gray','submitted'=>'badge-amber','approved'=>'badge-green','rejected'=>'badge-red'];
-$isCredit      = in_array($sheet['type'], ['credit','practice']);
 
-$pageTitle = 'Оценки — ' . htmlspecialchars($sheet['group_name'] . ' / ' . $sheet['subject_name']);
+$pageTitle = 'Оценки — ' . htmlspecialchars(($sheet['group_name'] ?? '') . ' / ' . $sheetSubjectTitle);
 $breadcrumbs = [
     ['label'=>'СВГТК',           'href'=>'../'],
     ['label'=>'Учебный процесс', 'href'=>'index.php'],
@@ -173,7 +170,6 @@ $breadcrumbs = [
     .grades-table th { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--color-text-muted); padding:.75rem 1rem; background:var(--color-surface-2); border-bottom:1px solid var(--color-divider); text-align:left; white-space:nowrap; }
     .grades-table td { padding:.5rem 1rem; border-bottom:1px solid var(--color-divider); font-size:.9375rem; vertical-align:middle; }
     .grades-table tr:last-child td { border-bottom:none; }
-    .grades-table tr.absent-row { opacity:.55; }
     .grade-input { width:88px; padding:.3rem .5rem; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); color:var(--color-text); font-size:.9375rem; }
     .grade-input:focus { outline:none; border-color:var(--color-primary); }
     .grade-select { width:70px; padding:.3rem .5rem; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); color:var(--color-text); font-size:.9375rem; }
@@ -207,7 +203,7 @@ $breadcrumbs = [
 
     <div class="page-header">
       <div>
-        <h1 class="page-title"><?= htmlspecialchars($sheet['group_name']) ?> / <?= htmlspecialchars($sheet['subject_name']) ?></h1>
+        <h1 class="page-title"><?= htmlspecialchars($sheet['group_name']) ?> / <?= htmlspecialchars($sheetSubjectTitle) ?></h1>
         <p class="page-subtitle"><?= $TYPE_LABELS[$sheet['type']] ?> · <?= !empty($sheet['curriculum_semester']) ? ((int)$sheet['curriculum_semester'] . ' семестр РУПл') : ($sheet['year_start'].'/'.$sheet['year_end'].' · '.$sheet['semester_num'].' семестр') ?></p>
       </div>
       <div class="page-actions">
@@ -253,7 +249,7 @@ $breadcrumbs = [
       <!-- Мета -->
       <div class="sheet-meta">
         <div class="meta-item"><span class="meta-label">Группа</span><span class="meta-val"><?= htmlspecialchars($sheet['group_name']) ?></span></div>
-        <div class="meta-item"><span class="meta-label">Дисциплина</span><span class="meta-val"><?= htmlspecialchars($sheet['subject_name']) ?></span></div>
+        <div class="meta-item"><span class="meta-label">Дисциплина</span><span class="meta-val"><?= htmlspecialchars($sheetSubjectTitle) ?></span></div>
         <div class="meta-item"><span class="meta-label">Тип</span><span class="meta-val"><?= $TYPE_LABELS[$sheet['type']] ?></span></div>
         <div class="meta-item"><span class="meta-label">Семестр</span><span class="meta-val"><?= $sheet['year_start'].'/'.$sheet['year_end'] ?> – <?= $sheet['semester_num'] ?> сем.</span></div>
         <div class="meta-item"><span class="meta-label">Преподаватель</span><span class="meta-val"><?= htmlspecialchars($sheet['teacher_name'] ?? '—') ?></span></div>
@@ -264,7 +260,6 @@ $breadcrumbs = [
       <div class="stats-strip">
         <div class="stat-item"><span class="stat-value"><?= $total ?></span><span class="stat-label">Студентов</span></div>
         <div class="stat-item"><span class="stat-value"><?= count($graded) ?></span><span class="stat-label">Оценок выставлено</span></div>
-        <div class="stat-item"><span class="stat-value"><?= count($absent) ?></span><span class="stat-label">Неявок</span></div>
         <?php if ($avg !== null): ?>
         <div class="stat-item"><span class="stat-value"><?= $avg ?></span><span class="stat-label">Средний балл</span></div>
         <?php endif ?>
@@ -274,60 +269,32 @@ $breadcrumbs = [
       <form method="POST" action="grades.php?sheet_id=<?= $sheetId ?>">
         <input type="hidden" name="save_grades" value="1">
 
-        <?php if ($canEdit): ?>
-        <div style="padding:.75rem 1.5rem;background:var(--color-surface-2);border-bottom:1px solid var(--color-divider);display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-          <label style="font-size:.8125rem;font-weight:500;color:var(--color-text-muted)">Дата проведения:</label>
-          <input type="date" name="grade_date" class="comment-input" style="width:auto" value="<?= date('Y-m-d') ?>">
-        </div>
-        <?php endif ?>
-
         <div class="table-wrapper">
           <table class="grades-table">
             <thead>
               <tr>
-                <th>#</th><th>ФИО студента</th><th>ИИН</th>
-                <?php if ($isCredit): ?><th>Зачтено</th><?php else: ?><th>Оценка</th><?php endif ?>
-                <th>Неявка</th><th>Комментарий</th>
+                <th>#</th><th>ФИО студента</th><th>ИИН</th><th>Оценка</th><th>Комментарий</th>
               </tr>
             </thead>
             <tbody>
-              <?php foreach ($students as $i => $s):
-                $cls = $s['absent'] ? ' class="absent-row"' : '';
-              ?>
-              <tr<?= $cls ?>>
+              <?php foreach ($students as $i => $s): ?>
+              <tr>
                 <td style="color:var(--color-text-muted)"><?= $i+1 ?></td>
                 <td style="font-weight:500"><?= htmlspecialchars($s['surname'].' '.$s['name'].' '.$s['patronymic']) ?></td>
                 <td style="font-family:monospace;font-size:.875rem"><?= htmlspecialchars($s['iin']) ?></td>
                 <td>
                   <?php if ($canEdit): ?>
-                    <?php if ($isCredit): ?>
-                    <input type="checkbox" name="passed[<?= $s['student_id'] ?>]" value="1" <?= $s['passed'] ? 'checked' : '' ?>>
-                    <?php else: ?>
                     <input type="number"
                            name="grade[<?= $s['student_id'] ?>]"
                            class="grade-input <?= edu_score_badge_class(edu_normalize_score($s['grade'])) === 'badge-green' ? 'grade-excellent' : (edu_score_badge_class(edu_normalize_score($s['grade'])) === 'badge-blue' ? 'grade-good' : (edu_score_badge_class(edu_normalize_score($s['grade'])) === 'badge-amber' ? 'grade-mid' : (edu_normalize_score($s['grade']) !== null ? 'grade-low' : ''))) ?>"
                            min="0" max="100" step="1" inputmode="numeric"
                            placeholder="0–100"
                            value="<?= htmlspecialchars($s['grade'] ?? '') ?>">
-                    <?php endif ?>
                   <?php else: ?>
-                    <?php if ($isCredit): ?>
-                      <span class="badge <?= $s['passed']?'badge-green':'badge-gray' ?>"><?= $s['passed']?'Зачтено':'—' ?></span>
-                    <?php else: ?>
-                      <?php $score = edu_normalize_score($s['grade']); ?>
-                      <?php if ($score !== null): ?>
-                      <span class="badge <?= edu_score_badge_class($score) ?>"><?= $score ?> / <?= edu_score_letter($score) ?></span>
-                      <?php else: ?><span style="color:var(--color-text-faint)">—</span><?php endif ?>
-                    <?php endif ?>
-                  <?php endif ?>
-                </td>
-                <td>
-                  <?php if ($canEdit): ?>
-                  <input type="checkbox" name="absent[<?= $s['student_id'] ?>]" value="1"
-                         <?= $s['absent'] ? 'checked' : '' ?>
-                         onchange="this.closest('tr').classList.toggle('absent-row',this.checked)">
-                  <?php else: ?>
-                  <?= $s['absent'] ? '<span class="badge badge-red">н</span>' : '—' ?>
+                    <?php $score = edu_normalize_score($s['grade']); ?>
+                    <?php if ($score !== null): ?>
+                    <span class="badge <?= edu_score_badge_class($score) ?>"><?= $score ?> / <?= edu_score_letter($score) ?></span>
+                    <?php else: ?><span style="color:var(--color-text-faint)">—</span><?php endif ?>
                   <?php endif ?>
                 </td>
                 <td>
