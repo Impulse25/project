@@ -20,22 +20,77 @@
       </svg>
     </button>
 
-    <!-- На главную -->
-    <a href="/" class="topbar-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none"
-           viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-        <path stroke-linecap="round" stroke-linejoin="round"
-        d="M3 12l9-9 9 9M5 10v9a1 1 0 0 0 1 1h4v-5h4v5h4a1 1 0 0 0 1-1v-9"/>
-      </svg>
-      <span>Главная</span>
-    </a>
+  </div>
 
+  <!-- ── Geo permission popup ── -->
+  <div class="geo-popup-bg" id="geoPopup">
+    <div class="geo-popup">
+      <div class="geo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+      <h2>Разрешение геолокации</h2>
+      <p>Для отметки входа необходимо подтвердить, что вы находитесь на территории колледжа. Пожалуйста, разрешите доступ к вашему местоположению.</p>
+      <button class="geo-allow-btn" onclick="requestGeo()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/>
+        </svg>
+        Разрешить геолокацию
+      </button>
+      <button class="geo-deny-btn" onclick="denyGeo()">Отказаться (вход будет заблокирован)</button>
+    </div>
   </div>
 
   <!-- ── Main screen ── -->
   <div class="screen">
     <div class="label-top">Колледж</div>
     <div class="title">Вход</div>
+
+    <!-- ── Campus selector ── -->
+    <div class="select-wrap" id="campusWrap">
+      <label class="select-label" for="campusSelect">Выберите корпус</label>
+      <div class="custom-select-box" id="campusSelectBox" onclick="toggleDropdown()">
+        <span id="campusSelectedText" class="select-placeholder">— Выберите корпус —</span>
+        <svg class="select-arrow" id="selectArrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="custom-dropdown" id="campusDropdown">
+        <div class="dropdown-item" data-value="main"
+             data-lat="49.802336515317165" data-lng="72.82927229999896"
+             onclick="selectCampus(this)">
+          <div class="campus-name">Главный корпус</div>
+          <div class="campus-addr">Карагандинская обл., Сарань, ул. Ленина, 14</div>
+        </div>
+        <div class="dropdown-item" data-value="sport"
+             data-lat="49.793952329641684" data-lng="72.81703731562591"
+             onclick="selectCampus(this)">
+          <div class="campus-name">Корпус физической культуры и спорта</div>
+          <div class="campus-addr">Карагандинская обл., Сарань, ул. Победы, 21</div>
+        </div>
+        <div class="dropdown-item" data-value="school"
+             data-lat="49.79409883139033" data-lng="72.81945789003095"
+             onclick="selectCampus(this)">
+          <div class="campus-name">Корпус школьно-русского отделения</div>
+          <div class="campus-addr">Карагандинская обл., Сарань, ул. Победы, 30</div>
+        </div>
+        <div class="dropdown-item" data-value="foreign"
+             data-lat="49.79415538925407" data-lng="72.81880781723116"
+             onclick="selectCampus(this)">
+          <div class="campus-name">Корпус иностранного отделения</div>
+          <div class="campus-addr">Карагандинская обл., Сарань, ул. Победы, 28</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Geo status badge ── -->
+    <div class="geo-status" id="geoStatus"></div>
 
     <div class="input-wrap">
       <input type="text" id="iin" placeholder="Введите ИИН"
@@ -77,19 +132,20 @@
       <div class="hm-section">
         <h3>Пошаговая инструкция</h3>
         <ul class="hm-steps">
-          <li><span class="hm-num">1</span><span>Убедитесь, что на экране написано <b>«Вход»</b>, а не «Выход».</span></li>
-          <li><span class="hm-num">2</span><span>Нажмите на поле ввода и введите ваш <b>12-значный ИИН</b> (цифры из удостоверения личности).</span></li>
-          <li><span class="hm-num">3</span><span>Нажмите кнопку <b>«Отметить вход»</b> или клавишу <b>Enter</b>.</span></li>
-          <li><span class="hm-num">4</span><span>Дождитесь карточки подтверждения — убедитесь, что ваши ФИО и группа верны.</span></li>
-          <li><span class="hm-num">5</span><span>Нажмите <b>«Закрыть»</b> — терминал готов для следующего студента.</span></li>
+          <li><span class="hm-num">1</span><span>Разрешите доступ к геолокации во всплывающем окне.</span></li>
+          <li><span class="hm-num">2</span><span>Выберите <b>корпус</b>, в котором вы находитесь, из выпадающего списка.</span></li>
+          <li><span class="hm-num">3</span><span>Убедитесь, что система подтвердила ваше местоположение (зелёный значок).</span></li>
+          <li><span class="hm-num">4</span><span>Введите ваш <b>12-значный ИИН</b> в поле ввода.</span></li>
+          <li><span class="hm-num">5</span><span>Нажмите <b>«Отметить вход»</b> или клавишу <b>Enter</b>.</span></li>
+          <li><span class="hm-num">6</span><span>Дождитесь карточки подтверждения и нажмите <b>«Закрыть»</b>.</span></li>
         </ul>
       </div>
 
       <div class="hm-section">
         <h3>Важно знать</h3>
         <div class="hm-note">
-          ⚠️ Нельзя войти дважды подряд. Сначала нужно отметить выход на странице <b>exit.html</b>.<br>
-          С одного устройства можно отметить только одного студента в час.
+          ⚠️ Вход возможен только при нахождении в радиусе 100 м от выбранного корпуса.<br>
+          Нельзя войти дважды подряд. Сначала нужно отметить выход на странице <b>exit.html</b>.
         </div>
       </div>
 

@@ -262,3 +262,148 @@ tbody tr:hover td { background: var(--color-surface-offset); }
   }
   .hm-close:hover { color: #374151; }
   [data-theme="dark"] .hm-close:hover { color: #e2e8f0; }
+
+  /* ── Кнопки: Вход / Выход / QR-Вход / QR-Выход ── */
+.btn-entry {
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+}
+.btn-entry:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+.btn-exit-action {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+.btn-exit-action:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+.btn-qr-entry {
+  background: #1a56db;
+  color: #fff;
+  border-color: #1a56db;
+}
+.btn-qr-entry:hover {
+  background: #1346c2;
+  border-color: #1346c2;
+}
+.btn-qr-exit {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.btn-qr-exit:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+
+/* ── QR-модал фон ── */
+.qr-modal-bg {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.qr-modal-bg.open {
+  display: flex;
+}
+
+/* ── QR-модал окно ── */
+.qr-modal {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 360px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Шапка модала — меняется цветом под тип ── */
+.qr-modal-head {
+  padding: 18px 20px 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.qr-modal-head.entry {
+  background: linear-gradient(135deg, #1a56db 0%, #2563eb 100%);
+}
+.qr-modal-head.exit {
+  background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+}
+.qr-modal-head-text h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 2px;
+}
+.qr-modal-head-text p {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+}
+.qr-modal-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: var(--radius-md);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+.qr-modal-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* ── QR-изображение ── */
+.qr-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.qr-img-wrap {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-img-wrap canvas,
+.qr-img-wrap img {
+  display: block;
+}
+.qr-modal-url {
+  font-size: 0.75rem;
+  color: var(--color-text-faint);
+  text-align: center;
+  word-break: break-all;
+  line-height: 1.5;
+}
+.qr-modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 20px;
+}
+.qr-modal-footer .btn {
+  flex: 1;
+  justify-content: center;
+}

@@ -390,3 +390,253 @@ body {
     }
     .hm-close:hover { color: #374151; }
     [data-theme="dark"] .hm-close:hover { color: #e2e8f0; }
+/* ============================================================
+   ВСПЛЫВАЮЩЕЕ ОКНО ГЕОЛОКАЦИИ
+   ============================================================ */
+.geo-popup-bg {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.60);
+  z-index: 20000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+.geo-popup-bg.show { display: flex; }
+
+.geo-popup {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  max-width: 400px;
+  width: 100%;
+  padding: 36px 32px 28px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0,0,0,.30);
+  animation: up .28s ease;
+}
+
+.geo-icon {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--accent-border);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
+  color: var(--accent-border);
+}
+.geo-icon svg { width: 28px; height: 28px; }
+
+.geo-popup h2 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.geo-popup p {
+  font-size: 13px;
+  color: var(--text-sub);
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+
+.geo-allow-btn {
+  width: 100%;
+  background: var(--btn-bg);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--font);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background var(--t), transform .1s;
+  margin-bottom: 10px;
+}
+.geo-allow-btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
+.geo-allow-btn:active { transform: translateY(0); }
+
+.geo-deny-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-hint);
+  cursor: pointer;
+  font-family: var(--font);
+  transition: color var(--t);
+}
+.geo-deny-btn:hover { color: var(--text-sub); }
+
+/* ============================================================
+   ВЫПАДАЮЩИЙ СПИСОК КОРПУСОВ
+   ============================================================ */
+.select-wrap {
+  width: 100%;
+  max-width: 340px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.select-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-hint);
+  margin-bottom: 7px;
+}
+
+.custom-select-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-field);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 13px 16px;
+  cursor: pointer;
+  transition: border-color var(--t), background var(--t), box-shadow var(--t);
+  user-select: none;
+}
+.custom-select-box:hover,
+.custom-select-box.active {
+  border-color: var(--accent-border);
+  background: var(--bg-field);
+  box-shadow: 0 0 0 3px var(--accent);
+}
+.custom-select-box.error {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239,68,68,.15);
+  animation: shake .35s ease;
+}
+
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-5px); }
+  40%      { transform: translateX(5px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(3px); }
+}
+
+.select-placeholder {
+  font-size: 14px;
+  color: var(--text-hint);
+  font-weight: 500;
+  flex: 1;
+}
+
+#campusSelectedText:not(.select-placeholder) {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 600;
+  flex: 1;
+}
+
+.select-arrow {
+  color: var(--text-hint);
+  flex-shrink: 0;
+  transition: transform .2s ease;
+}
+.select-arrow.rotated { transform: rotate(180deg); }
+
+.custom-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0; right: 0;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,.14);
+  z-index: 500;
+  animation: dropDown .18s ease;
+}
+.custom-dropdown.open { display: block; }
+
+@keyframes dropDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-item {
+  padding: 13px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--t);
+}
+.dropdown-item:last-child { border-bottom: none; }
+.dropdown-item:hover  { background: var(--accent); }
+.dropdown-item.selected { background: var(--accent); }
+
+.campus-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.campus-addr {
+  font-size: 11px;
+  color: var(--text-hint);
+  font-weight: 500;
+}
+
+/* ============================================================
+   СТАТУС ГЕОЛОКАЦИИ
+   ============================================================ */
+.geo-status {
+  width: 100%;
+  max-width: 340px;
+  min-height: 0;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  transition: all .25s ease;
+  text-align: center;
+}
+
+.geo-status:not(:empty) {
+  padding: 9px 14px;
+  margin-bottom: 12px;
+}
+
+.geo-status--loading {
+  background: rgba(99,102,241,.10);
+  color: #6366f1;
+  border: 1px solid rgba(99,102,241,.25);
+}
+.geo-status--ok {
+  background: rgba(22,163,74,.10);
+  color: #16a34a;
+  border: 1px solid rgba(22,163,74,.25);
+}
+.geo-status--far {
+  background: rgba(239,68,68,.09);
+  color: #dc2626;
+  border: 1px solid rgba(239,68,68,.22);
+}
+.geo-status--error {
+  background: rgba(239,68,68,.09);
+  color: #dc2626;
+  border: 1px solid rgba(239,68,68,.22);
+}
+.geo-status--info {
+  background: var(--accent);
+  color: var(--accent-border);
+  border: 1px solid var(--accent-border);
+}
+
+[data-theme="dark"] .geo-status--ok    { background: rgba(22,163,74,.18); }
+[data-theme="dark"] .geo-status--far   { background: rgba(239,68,68,.15); }
+[data-theme="dark"] .geo-status--error { background: rgba(239,68,68,.15); }

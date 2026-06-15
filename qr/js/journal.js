@@ -3,15 +3,16 @@
    Зависимости (должны быть объявлены ДО этого файла):
      - attendanceData  (array)  — из PHP через json_encode
      - eduGroups       (object) — из PHP через json_encode
+     - qrcode.min.js   — CDN, ДОЛЖЕН подключаться ДО journal.js
    ═══════════════════════════════════════════════════════ */
 
 /* ── Защита: если данные не переданы из PHP ── */
 if (typeof attendanceData === 'undefined') {
-  console.error('[journal.js] attendanceData не определён. Убедись, что в <head> есть блок <script> с var attendanceData = ...');
+  console.error('[journal.js] attendanceData не определён.');
   window.attendanceData = [];
 }
 if (typeof eduGroups === 'undefined') {
-  console.error('[journal.js] eduGroups не определён. Убедись, что в <head> есть блок <script> с var eduGroups = ...');
+  console.error('[journal.js] eduGroups не определён.');
   window.eduGroups = {};
 }
 
@@ -38,7 +39,6 @@ function updateThemeIcon(t) {
     : '<circle cx="12" cy="12" r="4"/><path stroke-linecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
 }
 
-/* Кнопка темы: поддержка как onclick="toggleTheme()", так и addEventListener */
 var _themeBtn = document.getElementById('themeToggle');
 if (_themeBtn && !_themeBtn.getAttribute('onclick')) {
   _themeBtn.addEventListener('click', toggleTheme);
@@ -67,18 +67,17 @@ if (_mobileMenuBtn) {
 var ROWS_PER_PAGE = 10;
 var currentPage   = 1;
 var sortCol       = 'action_time';
-var sortDir       = -1; // сначала новые
+var sortDir       = -1;
 var filtered      = [];
 
-/* ── Вспомогательная: название группы по id ── */
+/* ── Название группы по id ── */
 function getGroupName(gid) {
   var g = eduGroups[String(gid)];
   return g ? g.name : ('Гр.' + gid);
 }
 
-/* ── Динамические фильтры из реальных данных ── */
+/* ── Динамические фильтры ── */
 function buildFilters() {
-  /* Группы */
   var groupIds = attendanceData
     .map(function (r) { return r.group_id; })
     .filter(function (v, i, a) { return a.indexOf(v) === i; })
@@ -94,13 +93,11 @@ function buildFilters() {
     });
   }
 
-  /* Даты */
   var dates = attendanceData
     .map(function (r) { return r.action_time ? r.action_time.slice(0, 10) : null; })
     .filter(function (v) { return !!v; })
     .filter(function (v, i, a) { return a.indexOf(v) === i; })
-    .sort()
-    .reverse();
+    .sort().reverse();
 
   var fDate = document.getElementById('fDate');
   if (fDate) {
@@ -114,10 +111,9 @@ function buildFilters() {
   }
 }
 
-/* ── KPI-метрики ── */
+/* ── KPI ── */
 function updateMetrics() {
   var today = new Date().toISOString().slice(0, 10);
-
   var entries  = attendanceData.filter(function (r) { return r.action === 'entry'; }).length;
   var exits    = attendanceData.filter(function (r) { return r.action === 'exit'; }).length;
   var students = new Set(attendanceData.map(function (r) { return r.iin; })).size;
@@ -143,10 +139,10 @@ function pluralGroups(n) {
 
 /* ── Фильтрация ── */
 function applyFilters() {
-  var q  = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
-  var fa = document.getElementById('fAction')?.value || '';
-  var fg = document.getElementById('fGroup')?.value  || '';
-  var fd = document.getElementById('fDate')?.value   || '';
+  var q  = (document.getElementById('searchInput') ? document.getElementById('searchInput').value : '').toLowerCase().trim();
+  var fa = document.getElementById('fAction') ? document.getElementById('fAction').value : '';
+  var fg = document.getElementById('fGroup')  ? document.getElementById('fGroup').value  : '';
+  var fd = document.getElementById('fDate')   ? document.getElementById('fDate').value   : '';
 
   filtered = attendanceData.filter(function (r) {
     if (fa && r.action !== fa) return false;
@@ -154,17 +150,15 @@ function applyFilters() {
     if (fd && r.action_time && !r.action_time.startsWith(fd)) return false;
     if (q) {
       var grpName = getGroupName(r.group_id).toLowerCase();
-      var str = [r.surname, r.name, r.patronymic, r.iin, grpName]
-        .join(' ').toLowerCase();
+      var str = [r.surname, r.name, r.patronymic, r.iin, grpName].join(' ').toLowerCase();
       if (!str.includes(q)) return false;
     }
     return true;
   });
 
-  /* Сортировка */
   filtered.sort(function (a, b) {
-    var av = sortCol === 'group_id' ? getGroupName(a[sortCol]) : (a[sortCol] ?? '');
-    var bv = sortCol === 'group_id' ? getGroupName(b[sortCol]) : (b[sortCol] ?? '');
+    var av = sortCol === 'group_id' ? getGroupName(a[sortCol]) : (a[sortCol] !== undefined ? a[sortCol] : '');
+    var bv = sortCol === 'group_id' ? getGroupName(b[sortCol]) : (b[sortCol] !== undefined ? b[sortCol] : '');
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sortDir;
     return String(av).localeCompare(String(bv), 'ru') * sortDir;
   });
@@ -186,12 +180,7 @@ function sortBy(col) {
   document.querySelectorAll('thead th').forEach(function (th) { th.classList.remove('sorted'); });
   var thEl = document.getElementById('th-' + col);
   if (thEl) thEl.classList.add('sorted');
-  if (sortCol === col) {
-    sortDir *= -1;
-  } else {
-    sortCol = col;
-    sortDir = 1;
-  }
+  if (sortCol === col) { sortDir *= -1; } else { sortCol = col; sortDir = 1; }
   applyFilters();
 }
 
@@ -205,45 +194,39 @@ function render() {
   if (!tbody) return;
 
   if (!slice.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9" style="text-align:center;padding:2rem;color:var(--color-text-muted)">Записей не найдено</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="12" style="text-align:center;padding:2rem;color:var(--color-text-muted)">Записей не найдено</td></tr>';
   } else {
     tbody.innerHTML = slice.map(function (r) {
       var actionBadge = r.action === 'entry'
         ? '<span class="badge badge-entry">↗ Вход</span>'
         : '<span class="badge badge-exit">↙ Выход</span>';
-      // Тип устройства
       var typeEmoji = { desktop: '🖥️', mobile: '📱', tablet: '📟', unknown: '❓' };
       var typeLabel = typeEmoji[r.device_type] || '❓';
-      // Браузер + версия
       var browserStr = r.browser_name ? r.browser_name + (r.browser_version ? ' ' + r.browser_version.split('.')[0] : '') : '—';
       return '<tr>'
-        + '<td>' + (r.id ?? '—') + '</td>'
-        + '<td class="cell-iin">' + (r.iin ?? '—') + '</td>'
-        + '<td>' + (r.surname ?? '—') + '</td>'
-        + '<td>' + (r.name ?? '—') + '</td>'
+        + '<td>' + (r.id !== undefined ? r.id : '—') + '</td>'
+        + '<td class="cell-iin">' + (r.iin || '—') + '</td>'
+        + '<td>' + (r.surname || '—') + '</td>'
+        + '<td>' + (r.name || '—') + '</td>'
         + '<td>' + (r.patronymic || '—') + '</td>'
         + '<td><span class="badge badge-blue">' + getGroupName(r.group_id) + '</span></td>'
         + '<td>' + actionBadge + '</td>'
-        + '<td>' + (r.action_time ?? '—') + '</td>'
-        + '<td class="cell-ip">' + (r.device_ip ?? '—') + '</td>'
+        + '<td>' + (r.action_time || '—') + '</td>'
+        + '<td class="cell-ip">' + (r.device_ip || '—') + '</td>'
         + '<td>' + browserStr + '</td>'
-        + '<td>' + (r.os_name ?? '—') + '</td>'
-        + '<td title="' + (r.device_type ?? '') + '">' + typeLabel + '</td>'
+        + '<td>' + (r.os_name || '—') + '</td>'
+        + '<td title="' + (r.device_type || '') + '">' + typeLabel + '</td>'
         + '</tr>';
     }).join('');
   }
 
-  /* Информация о странице */
   var s = total ? start + 1 : 0;
   var e = Math.min(start + ROWS_PER_PAGE, total);
   var pageInfoEl = document.getElementById('pageInfo');
   if (pageInfoEl) {
-    pageInfoEl.textContent = total
-      ? 'Показано ' + s + '–' + e + ' из ' + total + ' записей'
-      : 'Нет записей';
+    pageInfoEl.textContent = total ? 'Показано ' + s + '–' + e + ' из ' + total + ' записей' : 'Нет записей';
   }
 
-  /* Кнопки пагинации */
   var btns = document.getElementById('pageBtns');
   if (!btns) return;
   btns.innerHTML = '';
@@ -273,7 +256,7 @@ function exportCSV() {
     return cols.map(function (c) {
       var v = c === 'group_id' ? getGroupName(r[c])
             : c === 'action'   ? (r[c] === 'entry' ? 'Вход' : 'Выход')
-            : (r[c] ?? '');
+            : (r[c] !== undefined ? r[c] : '');
       return '"' + String(v).replace(/"/g, '""') + '"';
     }).join(',');
   });
@@ -287,7 +270,7 @@ function exportCSV() {
 /* ── Экспорт Excel ── */
 function exportExcel() {
   if (typeof XLSX === 'undefined') {
-    alert('Библиотека XLSX не загружена. Проверь подключение к интернету или CDN.');
+    alert('Библиотека XLSX не загружена.');
     return;
   }
   var cols  = ['id','iin','surname','name','patronymic','group_id','action','action_time','device_ip','browser_name','browser_version','os_name','device_type'];
@@ -297,7 +280,7 @@ function exportExcel() {
     wsData.push(cols.map(function (c) {
       if (c === 'group_id') return getGroupName(r[c]);
       if (c === 'action')   return r[c] === 'entry' ? 'Вход' : 'Выход';
-      return r[c] ?? '';
+      return r[c] !== undefined ? r[c] : '';
     }));
   });
   var wb = XLSX.utils.book_new();
@@ -313,8 +296,166 @@ function exportExcel() {
   if (footerDate) {
     footerDate.textContent = new Date().toLocaleString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
   }
-
   buildFilters();
   updateMetrics();
   applyFilters();
+})();
+
+/* ═══════════════════════════════════════════════════
+   QR-ФУНКЦИОНАЛ
+   ═══════════════════════════════════════════════════ */
+
+/* Текущий тип QR: 'entry' или 'exit' */
+var _qrCurrentType = null;
+
+/**
+ * Открыть модал с QR-кодом.
+ * @param {'entry'|'exit'} type
+ */
+function showQRModal(type) {
+  var isEntry = type === 'entry';
+  var color   = isEntry ? '#1a56db' : '#7c3aed';
+  var title   = isEntry ? 'QR-код — Вход'                      : 'QR-код — Выход';
+  var subtitle= isEntry ? 'Студент сканирует для отметки входа' : 'Студент сканирует для отметки выхода';
+  var filename= isEntry ? 'qr-entry.png'                        : 'qr-exit.png';
+
+  /* URL для QR: фиксированные адреса страниц входа и выхода */
+  var url = isEntry
+    ? 'https://portal-svgtk.ru/qr/entry.html'
+    : 'https://portal-svgtk.ru/qr/exit.html';
+
+  /* Обновить шапку модала */
+  var titleEl2 = document.getElementById('qrModalTitle');
+  var subEl2   = document.getElementById('qrModalSub');
+  if (titleEl2) titleEl2.textContent = title;
+  if (subEl2)   subEl2.textContent   = subtitle;
+
+  var headEl = document.getElementById('qrModalHead');
+  if (headEl) {
+    headEl.style.background = isEntry
+      ? 'linear-gradient(135deg,#1a56db,#2563eb)'
+      : 'linear-gradient(135deg,#7c3aed,#8b5cf6)';
+  }
+
+  /* Показать URL под QR */
+  var urlEl = document.getElementById('qrModalUrl');
+  if (urlEl) urlEl.textContent = url;
+
+  /* Если тип сменился — очистить контейнер */
+  var container = document.getElementById('qrContainer');
+  if (!container) return;
+  if (_qrCurrentType !== type) {
+    container.innerHTML = '';
+    _qrCurrentType = type;
+
+    /* Проверить библиотеку */
+    if (typeof QRCode === 'undefined') {
+      container.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:8px">'
+        + 'QRCode.js не загружен.<br>Убедись, что CDN-скрипт идёт ДО journal.js</p>';
+    } else {
+      new QRCode(container, {
+        text:         url,
+        width:        220,
+        height:       220,
+        colorDark:    color,
+        colorLight:   '#ffffff',
+        correctLevel: QRCode.CorrectLevel.H
+      });
+    }
+  }
+
+  /* Открыть модал — и через style и через класс, чтобы точно сработало */
+  var bg = document.getElementById('qrModalBg');
+  if (bg) {
+    bg.style.display        = 'flex';
+    bg.style.position       = 'fixed';
+    bg.style.inset          = '0';
+    bg.style.background     = 'rgba(0,0,0,.6)';
+    bg.style.zIndex         = '99999';
+    bg.style.alignItems     = 'center';
+    bg.style.justifyContent = 'center';
+    bg.style.padding        = '16px';
+    bg.classList.add('open');
+  }
+
+  /* Обновить цвет шапки инлайн (надёжнее чем CSS-класс) */
+  var headEl2 = document.getElementById('qrModalHead');
+  if (headEl2) {
+    headEl2.style.background = isEntry
+      ? 'linear-gradient(135deg,#1a56db,#2563eb)'
+      : 'linear-gradient(135deg,#7c3aed,#8b5cf6)';
+  }
+
+  /* Кнопка «Скачать PNG» — ждём рендера canvas (~350 мс) */
+  var dlBtn = document.getElementById('qrModalDownload');
+  if (dlBtn) {
+    dlBtn.style.background = color;
+    setTimeout(function () {
+      var canvas = container.querySelector('canvas');
+      if (canvas) {
+        dlBtn.href     = canvas.toDataURL('image/png');
+        dlBtn.download = filename;
+      }
+    }, 400);
+  }
+}
+
+function closeQRModal() {
+  var bg = document.getElementById('qrModalBg');
+  if (bg) {
+    bg.style.display = 'none';
+    bg.classList.remove('open');
+  }
+  _qrCurrentType = null;
+  var container = document.getElementById('qrContainer');
+  if (container) container.innerHTML = '';
+  var dlBtn = document.getElementById('qrModalDownload');
+  if (dlBtn) dlBtn.href = '#';
+}
+
+/* Закрытие по клику на тёмный фон и по Escape */
+(function () {
+  /* Ждём загрузки DOM */
+  function attachQREvents() {
+    var bg = document.getElementById('qrModalBg');
+    if (bg) {
+      bg.addEventListener('click', function (e) {
+        if (e.target === bg) closeQRModal();
+      });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attachQREvents);
+  } else {
+    attachQREvents();
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeQRModal();
+  });
+})();
+/* ══════════════════════════════════════════════════
+   Динамические стили: тёмная тема для QR-модала
+   Вставляется в <head> при загрузке journal.js
+   ══════════════════════════════════════════════════ */
+(function injectQRStyles() {
+  var style = document.createElement('style');
+  style.textContent = [
+    /* Тёмная тема — фон модала */
+    '[data-theme="dark"] #qrModalBg > div {',
+    '  background: var(--color-surface) !important;',
+    '  border-color: var(--color-border) !important;',
+    '}',
+    /* Тёмная тема — область QR */
+    '[data-theme="dark"] #qrModalBg > div > div:nth-child(2) {',
+    '  background: var(--color-surface) !important;',
+    '}',
+    '[data-theme="dark"] #qrModalBg > div > div:nth-child(3) {',
+    '  background: var(--color-surface) !important;',
+    '}',
+    /* Кнопки page-actions — единый hover */
+    '.page-actions .btn { transition: opacity .18s, transform .18s, box-shadow .18s; }',
+    '.page-actions .btn:hover { opacity: .87; box-shadow: 0 4px 12px rgba(30,41,59,.18); transform: translateY(-1px); }',
+    '.page-actions .btn:active { transform: translateY(0); opacity: 1; }',
+  ].join('\n');
+  document.head.appendChild(style);
 })();
