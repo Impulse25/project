@@ -78,6 +78,7 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? 'index.php';
                 <option value="part_time">Частичная занятость</option>
                 <option value="contract">Договор/Контракт</option>
                 <option value="self_employed">Самозанятый</option>
+                <option value="other">Прочее</option>
               </select>
             </div>
             <div class="form-row full">
@@ -87,12 +88,6 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? 'index.php';
               </label>
             </div>
           </div>
-        </div>
-
-        <!-- Год выпуска -->
-        <div class="form-row">
-          <label class="form-label">Год выпуска <span class="required-mark employed-only-mark">*</span></label>
-          <input type="number" class="form-control" id="fGraduationYear" name="graduation_year" placeholder="<?= date('Y') ?>" min="2000" max="2099" maxlength="4" style="max-width:120px">
         </div>
 
         <!-- Примечание -->
@@ -209,7 +204,7 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? 'index.php';
       </div>
 
       <div class="help-note">
-        <strong>Важно:</strong> для статуса «Трудоустроен» нельзя оставлять пустыми организацию, должность, дату трудоустройства, тип занятости и год выпуска.
+        <strong>Важно:</strong> для статуса «Трудоустроен» нельзя оставлять пустыми организацию, должность, дату трудоустройства и тип занятости.
       </div>
     </div>
     <div class="modal-footer">

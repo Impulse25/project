@@ -18,6 +18,7 @@ function empTypeText(?string $t): string {
         'part_time'     => 'Частичная',
         'contract'      => 'Договор/Контракт',
         'self_employed' => 'Самозанятый',
+        'other'         => 'Прочее',
         default         => '—',
     };
 }
@@ -25,4 +26,19 @@ function fmtDate(?string $d): string {
     if (!$d) return '—';
     $dt = DateTime::createFromFormat('Y-m-d', $d);
     return $dt ? $dt->format('d.m.Y') : $d;
+}
+
+function groupStateBadge(?string $state): string {
+    return match($state) {
+        'current'  => '',
+        'previous' => '<span class="badge badge-amber">Выпускники</span>',
+        'archive'  => '<span class="badge badge-gray">Архив</span>',
+        default    => '<span class="badge badge-gray">—</span>',
+    };
+}
+
+function percentOf($part, $total): float {
+    $part = (int)$part;
+    $total = (int)$total;
+    return $total > 0 ? round($part / $total * 100, 1) : 0.0;
 }

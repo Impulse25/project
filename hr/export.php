@@ -7,30 +7,62 @@ if (!isset($_SESSION['user_id'])) {
     die('Не авторизован');
 }
 
-require_once '../config/db.php';
+require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/app/access.php';
+
+$userId = (int)$_SESSION['user_id'];
+$userRole = hr_normalize_role($_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '');
+$allowedViews = hr_allowed_views_for_role($userRole);
+if (!$allowedViews) {
+    http_response_code(403);
+    die('Нет доступа к HR-модулю');
+}
+
+$isDirector = $userRole === 'director';
+$currentYear = (int)date('Y');
 
 // ── Параметры экспорта ────────────────────────────────────
 $format = mb_strtolower(trim($_GET['format'] ?? 'excel')); // excel|xlsx|csv|word
-$fGroup    = isset($_GET['group_id'])     && $_GET['group_id']     !== '' ? (int)$_GET['group_id']     : null;
-$fSpec     = isset($_GET['specialty_id']) && $_GET['specialty_id']  !== '' ? (int)$_GET['specialty_id']: null;
-$fYear     = isset($_GET['grad_year'])    && $_GET['grad_year']    !== '' ? (int)$_GET['grad_year']   : null;
-$fStatus   = isset($_GET['status'])       && $_GET['status']       !== '' ? trim($_GET['status'])     : null;
-$fSearch   = isset($_GET['search'])       ? trim($_GET['search'])          : '';
+$requestedView = trim((string)($_GET['view'] ?? ''));
+if ($requestedView === 'previous') {
+    $requestedView = 'graduates';
+}
+$hrView = in_array($requestedView, $allowedViews, true) ? $requestedView : hr_default_view_for_role($userRole);
+
+$fGroup      = isset($_GET['group_id'])      && $_GET['group_id']      !== '' ? (int)$_GET['group_id']      : null;
+$fSpec       = isset($_GET['specialty_id'])  && $_GET['specialty_id']  !== '' ? (int)$_GET['specialty_id']  : null;
+$fDepartment = isset($_GET['department_id']) && $_GET['department_id'] !== '' ? (int)$_GET['department_id'] : null;
+$fYear       = isset($_GET['grad_year'])     && $_GET['grad_year']     !== '' ? (int)$_GET['grad_year']     : null;
+$fStatus     = isset($_GET['status'])        && $_GET['status']        !== '' ? trim($_GET['status'])       : null;
+$fSearch     = isset($_GET['search'])        ? trim($_GET['search'])          : '';
+
+if ($isDirector) {
+    $fGroup = null;
+}
+
+$gradExpr = hr_group_grad_expr('g');
+$groupStateExpr = hr_group_state_sql('g', $currentYear);
+$departmentExpr = 'COALESCE(g.department_id, sp.department_id)';
 
 // ── Основной запрос с теми же фильтрами, что и в index.php ─
-$where  = ['1=1'];
-$params = [];
+[$scopeConds, $scopeParams] = hr_scope_sql('g', $userRole, $userId, $hrView, $currentYear);
+$where  = $scopeConds ?: ['1=1'];
+$params = $scopeParams;
 
 if ($fGroup) {
     $where[]  = 's.group_id = ?';
     $params[] = $fGroup;
 }
+if ($fDepartment) {
+    $where[] = "$departmentExpr = ?";
+    $params[] = $fDepartment;
+}
 if ($fSpec) {
-    $where[]  = 's.speciality_id = ?';
+    $where[]  = 'COALESCE(s.speciality_id, g.specialty_id) = ?';
     $params[] = $fSpec;
 }
 if ($fYear) {
-    $where[]  = '(g.year_started + g.course) = ?';
+    $where[]  = "$gradExpr = ?";
     $params[] = $fYear;
 }
 if ($fStatus) {
@@ -50,10 +82,11 @@ if ($fSearch !== '') {
             LOWER(REPLACE(COALESCE(g.name,''), 'ё', 'е')) LIKE ? OR
             LOWER(REPLACE(COALESCE(sp.name_ru,''), 'ё', 'е')) LIKE ? OR
             LOWER(REPLACE(COALESCE(sp.code,''), 'ё', 'е')) LIKE ? OR
+            LOWER(REPLACE(COALESCE(d.department_name,''), 'ё', 'е')) LIKE ? OR
             LOWER(REPLACE(COALESCE(e.employer_name,''), 'ё', 'е')) LIKE ? OR
             LOWER(REPLACE(COALESCE(e.position,''), 'ё', 'е')) LIKE ?
         )";
-        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
 }
 
@@ -66,7 +99,9 @@ $sql = "
         g.name AS group_name,
         g.course,
         g.year_started,
-        (g.year_started + g.course) AS grad_year,
+        $gradExpr AS grad_year,
+        $groupStateExpr AS group_state,
+        d.department_name,
         sp.name_ru AS specialty_name,
         sp.code AS specialty_code,
         e.status,
@@ -79,11 +114,12 @@ $sql = "
         e.notes
     FROM edu_students s
     LEFT JOIN edu_groups g ON s.group_id = g.id
-    LEFT JOIN edu_specialties sp ON s.speciality_id = sp.id
+    LEFT JOIN edu_specialties sp ON sp.id = COALESCE(s.speciality_id, g.specialty_id)
+    LEFT JOIN departments d ON d.id = $departmentExpr
     LEFT JOIN hr_employment e ON e.student_id = s.id
         AND e.id = (SELECT MAX(e2.id) FROM hr_employment e2 WHERE e2.student_id = s.id)
     WHERE $whereStr
-    ORDER BY s.surname, s.name, s.patronymic
+    ORDER BY d.department_name, g.name, s.surname, s.name, s.patronymic
 ";
 
 $stmt = $pdo->prepare($sql);
@@ -108,6 +144,7 @@ function empTypeText(?string $t): string {
         'part_time'     => 'Частичная занятость',
         'contract'      => 'Договор/контракт',
         'self_employed' => 'Самозанятый',
+        'other'         => 'Прочее',
         default         => '—',
     };
 }
@@ -128,7 +165,7 @@ function fullName(array $row): string {
 }
 function exportRows(array $students): array {
     $headers = [
-        '№', 'ФИО', 'Группа', 'Год выпуска', 'Код специальности', 'Специальность',
+        '№', 'ФИО', 'Отделение', 'Группа', 'Тип группы', 'Год выпуска', 'Код специальности', 'Специальность',
         'Статус', 'Организация', 'Должность', 'Дата трудоустройства',
         'Тип занятости', 'По специальности', 'Примечания'
     ];
@@ -139,7 +176,9 @@ function exportRows(array $students): array {
         $rows[] = [
             (string)($i + 1),
             valueOrDash(fullName($row)),
+            valueOrDash($row['department_name'] ?? ''),
             valueOrDash($row['group_name'] ?? ''),
+            match($row['group_state'] ?? '') { 'current' => 'Группа', 'previous' => 'Выпускники', 'archive' => 'Архив', default => '—' },
             valueOrDash($gradYear),
             valueOrDash($row['specialty_code'] ?? ''),
             valueOrDash($row['specialty_name'] ?? ''),

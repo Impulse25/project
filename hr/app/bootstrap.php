@@ -8,11 +8,19 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/access.php';
 
 $userId   = (int)$_SESSION['user_id'];
-$userRole = $_SESSION['role'] ?? '';
+$userRole = hr_normalize_role($_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '');
 $userName = $_SESSION['full_name'] ?? '';
-$isAdmin  = in_array($userRole, ['admin', 'director']);
+
+$isSystemAdmin = $userRole === 'admin';
+$isDirector    = $userRole === 'director';
+$isTeacher     = $userRole === 'teacher';
+$isAdmin       = $isSystemAdmin; // оставлено для старых шаблонов: admin — только администратор
+$canOpenAdminPanel = $isSystemAdmin || $isDirector;
+$canManageHrRecords = $isSystemAdmin || $isTeacher;
+
 $nameParts = explode(' ', trim($userName));
 $initials  = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p, 0, 1)), array_slice($nameParts, 0, 2)));
 

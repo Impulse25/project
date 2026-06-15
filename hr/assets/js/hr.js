@@ -1,9 +1,9 @@
 // ── Данные для поиска и просмотра документов ─────────────────
-const studentsDataNode = document.getElementById('hrNewStudentsData');
-const allNewStudents = studentsDataNode ? JSON.parse(studentsDataNode.textContent || '[]') : [];
-
-const docsDataNode = document.getElementById('hrDocsData');
-const docsByEmployment = docsDataNode ? JSON.parse(docsDataNode.textContent || '{}') : {};
+let allNewStudents = [];
+let docsByEmployment = {};
+let selectedStudentId = null;
+let hrPageAbortController = null;
+let hrNavigationController = null;
 
 const STATUS_DOCUMENT_LABELS = {
   employed: {
@@ -33,6 +33,25 @@ const GENERIC_DOCUMENT_LABELS = {
   plural: 'Документы',
   hint: 'Документ',
 };
+
+const EMPLOYMENT_TEXT_RE = /^[\p{L}\p{N}\s.,\-–—'"«»„“”№\/()]+$/u;
+const NOTES_TEXT_RE = /^[\p{L}\p{N}\s.,\-–—'"«»„“”№\/()!?;:]+$/u;
+
+function parseJsonScript(id, fallback) {
+  const node = document.getElementById(id);
+  if (!node) return fallback;
+
+  try {
+    return JSON.parse(node.textContent || '');
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function loadHrEmbeddedData() {
+  allNewStudents = parseJsonScript('hrNewStudentsData', []);
+  docsByEmployment = parseJsonScript('hrDocsData', {});
+}
 
 function documentLabelsForStatus(status) {
   return STATUS_DOCUMENT_LABELS[status] || null;
@@ -78,10 +97,10 @@ function escapeHtml(value) {
 
 function showToast(msg, type = 'success') {
   const c = document.getElementById('toastContainer');
-  if (!c) return;
+  if (!c || !msg) return;
 
   const t = document.createElement('div');
-  t.className = `toast ${type}`;
+  t.className = `toast ${type === 'error' ? 'error' : 'success'}`;
   t.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${type === 'success' ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>'}</svg>${escapeHtml(msg)}`;
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
@@ -95,16 +114,16 @@ function closeModal(id) {
   document.getElementById(id)?.classList.remove('open');
 }
 
+function closeAllModals() {
+  document.querySelectorAll('.modal-overlay.open').forEach(modal => modal.classList.remove('open'));
+}
+
 function fmtBytes(b) {
   b = Number(b) || 0;
   if (b < 1024) return b + ' Б';
   if (b < 1048576) return (b / 1024).toFixed(1) + ' КБ';
   return (b / 1048576).toFixed(1) + ' МБ';
 }
-
-
-const EMPLOYMENT_TEXT_RE = /^[\p{L}\p{N}\s.,\-–—'"«»„“”№\/()]+$/u;
-const NOTES_TEXT_RE = /^[\p{L}\p{N}\s.,\-–—'"«»„“”№\/()!?;:]+$/u;
 
 function normalizeFormValue(value) {
   return String(value || '').replace(/\s+/gu, ' ').trim();
@@ -200,18 +219,225 @@ function docItemHtml(doc, canDelete) {
       <div class="doc-name">${escapeHtml(doc.original_name)}</div>
       <div class="doc-meta">${fmtBytes(doc.file_size)} · ${escapeHtml(doc.uploaded_at || '')}</div>
     </div>
-    <a href="download.php?id=${docId}" class="btn btn-ghost btn-sm" title="Скачать">
+    <a href="download.php?id=${docId}" class="btn btn-ghost btn-sm" title="Скачать" data-no-ajax="1">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     </a>
     ${deleteButton}
   </div>`;
 }
 
-// ── Поиск студента ─────────────────────────────────────────
-const searchInput = document.getElementById('fStudentSearch');
-const searchResults = document.getElementById('searchResults');
-let selectedStudentId = null;
+// ── AJAX-навигация без перезагрузки страницы ──────────────
+function normalizeHrPath(pathname) {
+  return pathname.replace(/\/index\.php$/i, '/').replace(/\/+$/g, '/');
+}
 
+function canHandleAjaxLink(link) {
+  if (!link || link.closest('[data-no-ajax]')) return false;
+  if (link.target && link.target !== '_self') return false;
+
+  const rawHref = link.getAttribute('href') || '';
+  if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:')) return false;
+
+  const url = new URL(rawHref, window.location.href);
+  if (url.origin !== window.location.origin) return false;
+  if (normalizeHrPath(url.pathname) !== normalizeHrPath(window.location.pathname)) return false;
+
+  return Boolean(link.closest('#mainWrapper'));
+}
+
+function getBrowserUrl(url) {
+  const u = new URL(url, window.location.href);
+  return u.pathname + u.search + u.hash;
+}
+
+function replaceElementById(doc, id) {
+  const current = document.getElementById(id);
+  const next = doc.getElementById(id);
+  if (current && next) current.replaceWith(next);
+}
+
+function applyAjaxHtml(html, targetUrl, pushHistory = true) {
+  const parser = new DOMParser();
+  const nextDoc = parser.parseFromString(html, 'text/html');
+  const nextMain = nextDoc.getElementById('mainWrapper');
+
+  if (!nextMain) {
+    window.location.href = targetUrl;
+    return;
+  }
+
+  replaceElementById(nextDoc, 'mainWrapper');
+  replaceElementById(nextDoc, 'modalRecord');
+  replaceElementById(nextDoc, 'modalDocs');
+  replaceElementById(nextDoc, 'modalHelp');
+  replaceElementById(nextDoc, 'toastContainer');
+  replaceElementById(nextDoc, 'hrNewStudentsData');
+  replaceElementById(nextDoc, 'hrDocsData');
+
+  if (pushHistory) {
+    window.history.pushState({}, '', getBrowserUrl(targetUrl));
+  }
+
+  initHrPage();
+  const flash = document.querySelector('.flash-message');
+  if (flash) {
+    showToast(flash.textContent.trim(), flash.classList.contains('error') ? 'error' : 'success');
+    flash.remove();
+  }
+}
+
+async function ajaxNavigate(url, pushHistory = true) {
+  const targetUrl = new URL(url, window.location.href).toString();
+
+  if (hrNavigationController) hrNavigationController.abort();
+  hrNavigationController = new AbortController();
+
+  const wrapper = document.getElementById('mainWrapper');
+  wrapper?.classList.add('ajax-loading');
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      signal: hrNavigationController.signal,
+    });
+
+    if (!response.ok) throw new Error('Ошибка загрузки страницы');
+    const html = await response.text();
+    applyAjaxHtml(html, response.url || targetUrl, pushHistory);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    showToast(err.message || 'Не удалось обновить страницу', 'error');
+  } finally {
+    document.getElementById('mainWrapper')?.classList.remove('ajax-loading');
+  }
+}
+
+function buildFilterUrl(form) {
+  const url = new URL(form.getAttribute('action') || window.location.href, window.location.href);
+  const formData = new FormData(form);
+
+  url.search = '';
+  formData.delete('page');
+
+  for (const [key, value] of formData.entries()) {
+    const normalizedValue = String(value || '').trim();
+    if (normalizedValue !== '') url.searchParams.append(key, normalizedValue);
+  }
+
+  return url.toString();
+}
+
+function validateRecordForm(e, submitter) {
+  if (submitter?.name === 'delete_doc_id') {
+    if (!confirm('Удалить документ?')) {
+      e.preventDefault();
+      return false;
+    }
+    return true;
+  }
+
+  const studentId = document.getElementById('fStudentId')?.value;
+  if (!studentId) {
+    failFormValidation(e, 'Выберите студента', 'fStudentSearch');
+    return false;
+  }
+
+  const status = document.getElementById('fStatus')?.value || 'unknown';
+  const isEmployed = status === 'employed';
+
+  if (isEmployed) {
+    const requiredFields = [
+      ['fEmployerName', 'Заполните поле: Организация'],
+      ['fPosition', 'Заполните поле: Должность'],
+      ['fEmploymentDate', 'Заполните поле: Дата трудоустройства'],
+      ['fEmploymentType', 'Заполните поле: Тип занятости'],
+    ];
+
+    for (const [fieldId, message] of requiredFields) {
+      if (!fieldValue(fieldId)) {
+        failFormValidation(e, message, fieldId);
+        return false;
+      }
+    }
+  }
+
+  const employerName = fieldValue('fEmployerName');
+  const position = fieldValue('fPosition');
+  const notes = fieldValue('fNotes');
+
+  if (isEmployed && hasForbiddenChars(employerName)) {
+    failFormValidation(e, 'Поле «Организация» содержит запрещённые символы', 'fEmployerName');
+    return false;
+  }
+
+  if (isEmployed && hasForbiddenChars(position)) {
+    failFormValidation(e, 'Поле «Должность» содержит запрещённые символы', 'fPosition');
+    return false;
+  }
+
+  if (hasForbiddenChars(notes, true)) {
+    failFormValidation(e, 'Поле «Примечание» содержит запрещённые символы', 'fNotes');
+    return false;
+  }
+
+  return true;
+}
+
+async function submitActionForm(form, submitter) {
+  const formData = new FormData(form);
+  if (submitter?.name && !formData.has(submitter.name)) {
+    formData.append(submitter.name, submitter.value || '');
+  }
+  formData.append('ajax', '1');
+
+  const btn = submitter || form.querySelector('[type="submit"]');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    if (btn.id === 'btnSaveRecord') btn.textContent = 'Сохранение...';
+  }
+
+  try {
+    const response = await fetch(form.getAttribute('action') || 'actions.php', {
+      method: 'POST',
+      body: formData,
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json',
+      },
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error('Сервер вернул некорректный ответ');
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      showToast(result.message || 'Операция не выполнена', 'error');
+      return;
+    }
+
+    closeAllModals();
+    await ajaxNavigate(window.location.href, false);
+    showToast(result.message || 'Готово', 'success');
+  } catch (err) {
+    showToast(err.message || 'Ошибка выполнения действия', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (oldHtml !== undefined) btn.innerHTML = oldHtml;
+    }
+  }
+}
+
+// ── Поиск студента ─────────────────────────────────────────
 function normalizeSearchText(value) {
   return String(value || '')
     .toLowerCase()
@@ -227,42 +453,11 @@ function studentMatchesSearch(student, query) {
   return terms.every(term => haystack.includes(term));
 }
 
-searchInput?.addEventListener('input', () => {
-  const q = searchInput.value.trim();
-  if (!q) {
-    searchResults?.classList.remove('open');
-    return;
-  }
-
-  const results = allNewStudents
-    .filter(s => studentMatchesSearch(s, q))
-    .slice(0, 15);
-
-  if (!searchResults) return;
-
-  if (results.length === 0) {
-    searchResults.innerHTML = '<div class="search-result-empty">Студенты не найдены</div>';
-  } else {
-    searchResults.innerHTML = results.map(s => `
-      <button type="button" class="search-result-item" data-student-id="${Number(s.id)}" data-student-name="${escapeHtml(s.name)}">
-        <div style="font-weight:500">${escapeHtml(s.name)}</div>
-        <div style="font-size:var(--text-xs);color:var(--color-text-muted)">${escapeHtml(s.group || '—')}</div>
-      </button>
-    `).join('');
-  }
-
-  searchResults.classList.add('open');
-});
-
-searchResults?.addEventListener('click', (e) => {
-  const item = e.target.closest('.search-result-item');
-  if (!item) return;
-  selectStudent(item.dataset.studentId, item.dataset.studentName);
-});
-
 function selectStudent(id, name) {
   selectedStudentId = id;
   const studentIdField = document.getElementById('fStudentId');
+  const searchInput = document.getElementById('fStudentSearch');
+  const searchResults = document.getElementById('searchResults');
   const selectedDisplay = document.getElementById('selectedStudentDisplay');
 
   if (studentIdField) studentIdField.value = id;
@@ -270,31 +465,6 @@ function selectStudent(id, name) {
   if (selectedDisplay) selectedDisplay.textContent = name;
   searchResults?.classList.remove('open');
 }
-
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.search-wrapper')) {
-    searchResults?.classList.remove('open');
-  }
-});
-
-// ── Боковая панель ────────────────────────────────────────
-document.getElementById('sidebarToggle')?.addEventListener('click', () => {
-  document.getElementById('sidebar')?.classList.toggle('collapsed');
-  document.getElementById('mainWrapper')?.classList.toggle('sidebar-collapsed');
-});
-
-document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
-  document.getElementById('sidebar')?.classList.toggle('mobile-open');
-});
-
-// ── Тема ──────────────────────────────────────────────────
-const html = document.documentElement;
-html.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
-document.getElementById('themeToggle')?.addEventListener('click', () => {
-  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('theme', next);
-});
 
 // ── Переключение полей трудоустройства ────────────────────
 function toggleEmployedFields() {
@@ -312,29 +482,8 @@ function toggleEmployedFields() {
     el.disabled = !isEmployed;
   });
 
-  const yearField = document.getElementById('fGraduationYear');
-  if (yearField) yearField.required = isEmployed;
-
   refreshDocumentSection();
 }
-
-document.getElementById('fStatus')?.addEventListener('change', toggleEmployedFields);
-toggleEmployedFields();
-
-// ── Открыть модал добавления ──────────────────────────────
-document.getElementById('btnHelp')?.addEventListener('click', () => {
-  openModal('modalHelp');
-});
-
-document.getElementById('btnAddRecord')?.addEventListener('click', () => {
-  clearForm();
-  document.getElementById('modalTitle').textContent = 'Добавить запись';
-  document.getElementById('studentAddMode').style.display = '';
-  document.getElementById('studentEditMode').style.display = 'none';
-  refreshDocumentSection();
-  selectedStudentId = null;
-  openModal('modalRecord');
-});
 
 // ── Открыть модал редактирования ─────────────────────────
 function openEdit(data) {
@@ -348,7 +497,6 @@ function openEdit(data) {
   document.getElementById('fEmploymentDate').value = data.employmentDate ? String(data.employmentDate).substr(0, 10) : '';
   document.getElementById('fEmploymentType').value = data.employmentType || 'full_time';
   document.getElementById('fIsBySpec').checked = !!data.isBySpec;
-  document.getElementById('fGraduationYear').value = data.graduationYear || '';
   document.getElementById('fNotes').value = data.notes || '';
 
   document.getElementById('studentAddMode').style.display = 'none';
@@ -360,12 +508,13 @@ function openEdit(data) {
 }
 
 function clearForm() {
-  ['fRecordId', 'fStudentId', 'fEmployerName', 'fPosition', 'fEmploymentDate', 'fGraduationYear', 'fNotes']
+  ['fRecordId', 'fStudentId', 'fEmployerName', 'fPosition', 'fEmploymentDate', 'fNotes']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
   const statusField = document.getElementById('fStatus');
   const typeField = document.getElementById('fEmploymentType');
   const specField = document.getElementById('fIsBySpec');
+  const searchInput = document.getElementById('fStudentSearch');
   const selectedDisplay = document.getElementById('selectedStudentDisplay');
   const docsList = document.getElementById('docsList');
   const uploadArea = document.getElementById('uploadArea');
@@ -384,7 +533,7 @@ function clearForm() {
   toggleEmployedFields();
 }
 
-// ── Документы без фоновых запросов: берём список из JSON, встроенного в страницу ──
+// ── Документы: список берётся из JSON, встроенного в страницу ──
 function renderDocs(empId, containerId, canDelete) {
   const c = document.getElementById(containerId);
   if (!c) return;
@@ -401,12 +550,9 @@ function openDocs(empId, status = 'unknown') {
   openModal('modalDocs');
 }
 
-// ── Загрузка файлов через обычный POST формы ──────────────
-const uploadArea = document.getElementById('uploadArea');
-const fileInput = document.getElementById('fileInput');
-const selectedFilesInfo = document.getElementById('selectedFilesInfo');
-
 function updateSelectedFilesInfo() {
+  const selectedFilesInfo = document.getElementById('selectedFilesInfo');
+  const fileInput = document.getElementById('fileInput');
   if (!selectedFilesInfo || !fileInput) return;
   const files = Array.from(fileInput.files || []);
   selectedFilesInfo.textContent = files.length
@@ -414,93 +560,152 @@ function updateSelectedFilesInfo() {
     : '';
 }
 
-uploadArea?.addEventListener('click', () => fileInput?.click());
-uploadArea?.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
-uploadArea?.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
-uploadArea?.addEventListener('drop', e => {
-  e.preventDefault();
-  uploadArea.classList.remove('drag-over');
-  if (!fileInput) return;
+function initHrPage() {
+  if (hrPageAbortController) hrPageAbortController.abort();
+  hrPageAbortController = new AbortController();
+  const signal = hrPageAbortController.signal;
 
-  try {
-    fileInput.files = e.dataTransfer.files;
-    updateSelectedFilesInfo();
-  } catch (err) {
-    showToast('Перетащите файл через стандартный выбор файла', 'error');
-  }
-});
-fileInput?.addEventListener('change', updateSelectedFilesInfo);
+  loadHrEmbeddedData();
+  selectedStudentId = null;
 
-// ── Валидация обычной формы ───────────────────────────────
-document.getElementById('recordForm')?.addEventListener('submit', (e) => {
-  const submitter = e.submitter;
+  const html = document.documentElement;
+  html.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
 
-  if (submitter?.name === 'delete_doc_id') {
-    if (!confirm('Удалить документ?')) e.preventDefault();
-    return;
-  }
+  const searchInput = document.getElementById('fStudentSearch');
+  const searchResults = document.getElementById('searchResults');
 
-  const studentId = document.getElementById('fStudentId')?.value;
-  if (!studentId) {
-    failFormValidation(e, 'Выберите студента', 'fStudentSearch');
-    return;
-  }
-
-  const status = document.getElementById('fStatus')?.value || 'unknown';
-  const isEmployed = status === 'employed';
-
-  if (isEmployed) {
-    const requiredFields = [
-      ['fEmployerName', 'Заполните поле: Организация'],
-      ['fPosition', 'Заполните поле: Должность'],
-      ['fEmploymentDate', 'Заполните поле: Дата трудоустройства'],
-      ['fEmploymentType', 'Заполните поле: Тип занятости'],
-      ['fGraduationYear', 'Заполните поле: Год выпуска'],
-    ];
-
-    for (const [fieldId, message] of requiredFields) {
-      if (!fieldValue(fieldId)) {
-        failFormValidation(e, message, fieldId);
-        return;
-      }
+  searchInput?.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    if (!q) {
+      searchResults?.classList.remove('open');
+      return;
     }
-  }
 
-  const employerName = fieldValue('fEmployerName');
-  const position = fieldValue('fPosition');
-  const notes = fieldValue('fNotes');
+    const results = allNewStudents
+      .filter(s => studentMatchesSearch(s, q))
+      .slice(0, 15);
 
-  if (isEmployed && hasForbiddenChars(employerName)) {
-    failFormValidation(e, 'Поле «Организация» содержит запрещённые символы', 'fEmployerName');
-    return;
-  }
+    if (!searchResults) return;
 
-  if (isEmployed && hasForbiddenChars(position)) {
-    failFormValidation(e, 'Поле «Должность» содержит запрещённые символы', 'fPosition');
-    return;
-  }
+    if (results.length === 0) {
+      searchResults.innerHTML = '<div class="search-result-empty">Студенты не найдены</div>';
+    } else {
+      searchResults.innerHTML = results.map(s => `
+        <button type="button" class="search-result-item" data-student-id="${Number(s.id)}" data-student-name="${escapeHtml(s.name)}">
+          <div style="font-weight:500">${escapeHtml(s.name)}</div>
+          <div style="font-size:var(--text-xs);color:var(--color-text-muted)">${escapeHtml(s.group || '—')}</div>
+        </button>
+      `).join('');
+    }
 
-  if (hasForbiddenChars(notes, true)) {
-    failFormValidation(e, 'Поле «Примечание» содержит запрещённые символы', 'fNotes');
-    return;
-  }
+    searchResults.classList.add('open');
+  }, { signal });
 
-  const graduationYear = fieldValue('fGraduationYear');
-  if (graduationYear && (!/^\d{4}$/.test(graduationYear) || Number(graduationYear) < 2000 || Number(graduationYear) > 2099)) {
-    failFormValidation(e, 'Год выпуска должен быть в диапазоне 2000–2099', 'fGraduationYear');
-    return;
-  }
+  searchResults?.addEventListener('click', (e) => {
+    const item = e.target.closest('.search-result-item');
+    if (!item) return;
+    selectStudent(item.dataset.studentId, item.dataset.studentName);
+  }, { signal });
 
-  const btn = document.getElementById('btnSaveRecord');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Сохранение...';
-  }
-});
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrapper')) {
+      document.getElementById('searchResults')?.classList.remove('open');
+    }
+  }, { signal });
 
-// ── Закрытие модала по оверлею ───────────────────────────
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.remove('open');
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (!link || !canHandleAjaxLink(link)) return;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+    e.preventDefault();
+    ajaxNavigate(link.href, true);
+  }, { signal });
+
+  document.getElementById('sidebarToggle')?.addEventListener('click', () => {
+    document.getElementById('sidebar')?.classList.toggle('collapsed');
+    document.getElementById('mainWrapper')?.classList.toggle('sidebar-collapsed');
+  }, { signal });
+
+  document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
+    document.getElementById('sidebar')?.classList.toggle('mobile-open');
+  }, { signal });
+
+  document.getElementById('themeToggle')?.addEventListener('click', () => {
+    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+  }, { signal });
+
+  document.getElementById('fStatus')?.addEventListener('change', toggleEmployedFields, { signal });
+  toggleEmployedFields();
+
+  document.getElementById('btnHelp')?.addEventListener('click', () => {
+    openModal('modalHelp');
+  }, { signal });
+
+  document.getElementById('btnAddRecord')?.addEventListener('click', () => {
+    clearForm();
+    document.getElementById('modalTitle').textContent = 'Добавить запись';
+    document.getElementById('studentAddMode').style.display = '';
+    document.getElementById('studentEditMode').style.display = 'none';
+    refreshDocumentSection();
+    selectedStudentId = null;
+    openModal('modalRecord');
+  }, { signal });
+
+  const uploadArea = document.getElementById('uploadArea');
+  const fileInput = document.getElementById('fileInput');
+
+  uploadArea?.addEventListener('click', () => fileInput?.click(), { signal });
+  uploadArea?.addEventListener('dragover', e => {
+    e.preventDefault();
+    uploadArea.classList.add('drag-over');
+  }, { signal });
+  uploadArea?.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'), { signal });
+  uploadArea?.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('drag-over');
+    if (!fileInput) return;
+
+    try {
+      fileInput.files = e.dataTransfer.files;
+      updateSelectedFilesInfo();
+    } catch (err) {
+      showToast('Перетащите файл через стандартный выбор файла', 'error');
+    }
+  }, { signal });
+  fileInput?.addEventListener('change', updateSelectedFilesInfo, { signal });
+
+  document.getElementById('filterForm')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    ajaxNavigate(buildFilterUrl(e.currentTarget), true);
+  }, { signal });
+
+  document.querySelectorAll('form[action="actions.php"], form[action$="/actions.php"]').forEach(form => {
+    form.addEventListener('submit', (e) => {
+      if (e.defaultPrevented) return;
+      const submitter = e.submitter;
+
+      if (form.id === 'recordForm' && !validateRecordForm(e, submitter)) return;
+
+      e.preventDefault();
+      submitActionForm(form, submitter);
+    }, { signal });
   });
-});
+
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    }, { signal });
+  });
+
+  const flash = document.querySelector('.flash-message');
+  if (flash) {
+    showToast(flash.textContent.trim(), flash.classList.contains('error') ? 'error' : 'success');
+    flash.remove();
+  }
+}
+
+window.addEventListener('popstate', () => ajaxNavigate(window.location.href, false));
+document.addEventListener('DOMContentLoaded', initHrPage);

@@ -5,6 +5,7 @@
 session_start();
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/app/access.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../?redirect=' . urlencode($_SERVER['REQUEST_URI'] ?? 'hr/'));
@@ -12,6 +13,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $userId = (int)$_SESSION['user_id'];
+$userRole = hr_normalize_role($_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '');
 
 function intOrNull($v): ?int {
     return (is_numeric($v) && $v !== '') ? (int)$v : null;
@@ -29,6 +31,30 @@ function dateOrNull($v): ?string {
     return ($d && $d->format('Y-m-d') === $v) ? $v : null;
 }
 
+
+
+function isAjaxRequest(): bool {
+    $requestedWith = $_SERVER['HTTP_X_REQUESTED_WITH'] ?? '';
+    $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+
+    return strcasecmp($requestedWith, 'XMLHttpRequest') === 0
+        || ($_POST['ajax'] ?? '') === '1'
+        || ($_GET['ajax'] ?? '') === '1'
+        || str_contains($accept, 'application/json');
+}
+
+function jsonResponse(bool $success, string $message = '', string $type = 'success', array $extra = []): void {
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+    }
+
+    echo json_encode(array_merge([
+        'success' => $success,
+        'type'    => $type === 'error' ? 'error' : 'success',
+        'message' => $message,
+    ], $extra), JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 function failValidation(string $message): void {
     redirectBack($message, 'error');
@@ -66,23 +92,24 @@ function ensureTextField(?string $value, string $label, int $maxLen = 255, bool 
     return $value;
 }
 
-function ensureGraduationYear($value, bool $required): ?int {
-    $raw = trim((string)($value ?? ''));
-    if ($raw === '') {
-        if ($required) failValidation('Заполните поле: Год выпуска');
-        return null;
-    }
+function calculateStudentGraduationYear(PDO $pdo, int $studentId): ?int {
+    if ($studentId <= 0) return null;
 
-    if (!preg_match('/^\d{4}$/', $raw)) {
-        failValidation('Год выпуска должен состоять из 4 цифр');
-    }
+    $gradExpr = hr_group_grad_expr('g');
+    $stmt = $pdo->prepare("
+        SELECT $gradExpr AS graduation_year
+        FROM edu_students s
+        LEFT JOIN edu_groups g ON g.id = s.group_id
+        WHERE s.id = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$studentId]);
 
-    $year = (int)$raw;
-    if ($year < 2000 || $year > 2099) {
-        failValidation('Год выпуска должен быть в диапазоне 2000–2099');
-    }
+    $value = $stmt->fetchColumn();
+    if ($value === false || $value === null || $value === '') return null;
 
-    return $year;
+    $year = (int)$value;
+    return ($year >= 2000 && $year <= 2099) ? $year : null;
 }
 
 function setFlash(string $message, string $type = 'success'): void {
@@ -105,9 +132,16 @@ function safeRedirectTarget(?string $target): string {
 }
 
 function redirectBack(?string $message = null, string $type = 'success'): void {
+    $target = safeRedirectTarget($_POST['redirect_to'] ?? ($_SERVER['HTTP_REFERER'] ?? 'index.php'));
+
+    if (isAjaxRequest()) {
+        jsonResponse($type !== 'error', $message ?? '', $type, [
+            'redirect' => $target,
+        ]);
+    }
+
     if ($message !== null) setFlash($message, $type);
-    $target = $_POST['redirect_to'] ?? ($_SERVER['HTTP_REFERER'] ?? 'index.php');
-    header('Location: ' . safeRedirectTarget($target));
+    header('Location: ' . $target);
     exit;
 }
 
@@ -213,11 +247,15 @@ try {
     if (isset($_POST['delete_doc_id']) && is_numeric($_POST['delete_doc_id'])) {
         $docId = (int)$_POST['delete_doc_id'];
 
-        $row = $pdo->prepare('SELECT filename FROM hr_documents WHERE id = ?');
+        $row = $pdo->prepare('SELECT filename, employment_id FROM hr_documents WHERE id = ?');
         $row->execute([$docId]);
         $doc = $row->fetch();
 
         if ($doc) {
+            if (!hr_user_can_manage_record($pdo, (int)$doc['employment_id'], $userId, $userRole)) {
+                redirectBack('Нет доступа к удалению этого документа', 'error');
+            }
+
             $path = __DIR__ . '/uploads/' . $doc['filename'];
             if (file_exists($path)) unlink($path);
             $pdo->prepare('DELETE FROM hr_documents WHERE id = ?')->execute([$docId]);
@@ -235,8 +273,21 @@ try {
             redirectBack('Не выбран студент', 'error');
         }
 
+        if ($recordId) {
+            if (!hr_user_can_manage_record($pdo, $recordId, $userId, $userRole)) {
+                redirectBack('Нет доступа к изменению этой записи', 'error');
+            }
+            $ownerStmt = $pdo->prepare('SELECT student_id FROM hr_employment WHERE id = ?');
+            $ownerStmt->execute([$recordId]);
+            if ((int)$ownerStmt->fetchColumn() !== $studentId) {
+                redirectBack('Запись не относится к выбранному студенту', 'error');
+            }
+        } elseif (!hr_user_can_manage_student($pdo, $studentId, $userId, $userRole)) {
+            redirectBack('Нет доступа к добавлению записи для этого студента', 'error');
+        }
+
         $allowedStatus = ['employed', 'unemployed', 'studying', 'decree', 'military', 'unknown'];
-        $allowedType   = ['full_time', 'part_time', 'contract', 'self_employed'];
+        $allowedType   = ['full_time', 'part_time', 'contract', 'self_employed', 'other'];
 
         if (!in_array($status, $allowedStatus, true)) {
             redirectBack('Некорректный статус занятости', 'error');
@@ -249,7 +300,7 @@ try {
         $employmentDate = dateOrNull($_POST['employment_date'] ?? '');
         $employmentType = trim((string)($_POST['employment_type'] ?? 'full_time'));
         $isBySpec       = isset($_POST['is_by_specialty']) ? 1 : 0;
-        $graduationYear = ensureGraduationYear($_POST['graduation_year'] ?? '', $isEmployed);
+        $graduationYear = calculateStudentGraduationYear($pdo, $studentId);
         $notes          = ensureTextField($_POST['notes'] ?? '', 'Примечание', 2000, false, true);
 
         if (!in_array($employmentType, $allowedType, true)) {
@@ -299,6 +350,9 @@ try {
         $recordId = intOrNull($_POST['record_id'] ?? '');
         if (!$recordId) {
             redirectBack('Не указан ID записи', 'error');
+        }
+        if (!hr_user_can_manage_record($pdo, $recordId, $userId, $userRole)) {
+            redirectBack('Нет доступа к удалению этой записи', 'error');
         }
 
         $docs = $pdo->prepare('SELECT filename FROM hr_documents WHERE employment_id = ?');
