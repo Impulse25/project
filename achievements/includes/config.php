@@ -28,5 +28,4 @@ define('GEMINI_API_KEY', 'AQ.Ab8RN6J-ZVACrbh75WsQU9jdGVJ6ffn_u3JzwEOHNzKCXvcg3A'
 define('OPENROUTER_API_KEY', '');  // ← вставь свой ключ
 
 // Yandex Cloud Vision (старый, не используется)
-define('YANDEX_API_KEY',   'AQVNxFthIU7cPw4ZI3svjaMPiyEgQYZi2FHuC2rs');
 define('YANDEX_FOLDER_ID', 'b1gks0clrt4gms94r4nk');
