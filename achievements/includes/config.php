@@ -5,7 +5,7 @@ define('DB_PASS', '6btcy2iFPUGKV2N');
 define('DB_NAME', 'p-355792_svgtk');
 define('DB_CHARSET', 'utf8mb4');
 define('SITE_NAME',  'СВГТК Портал');
-define('SITE_URL',   'http://project/achievements');
+define('SITE_URL',   'http://portal-svgtk.ru/achievements');
 
 function getPDO(): PDO {
     static $pdo = null;
