@@ -8,19 +8,15 @@ define('SITE_NAME',  'СВГТК Портал');
 define('SITE_URL',   'http://portal-svgtk.ru/achievements');
 
 function getPDO(): PDO {
-   static $connection = null;
-
-    if ($connection === null) {
-        require_once BASE_PATH . '/../requests/config/db.php';
-
-        if (!isset($pdo) || !($pdo instanceof PDO)) {
-            throw new RuntimeException('Не удалось получить подключение к БД');
-        }
-
-        $connection = $pdo;
+    static $pdo = null;
+    if ($pdo === null) {
+        $dsn = "mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=".DB_CHARSET;
+        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
     }
-
-    return $connection;
+    return $pdo;
 }
 
 // Google Gemini — основной, 1500 запросов/день
