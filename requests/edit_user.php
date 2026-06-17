@@ -1,11 +1,53 @@
 <?php
 // edit_user.php - Редактирование профиля пользователя
 
-require_once 'config/db.php';
+require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
+require_once 'includes/permissions.php';
 require_once 'includes/language.php';
 
 requireRole('admin');
+
+function request_table_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND COLUMN_NAME = ?
+        ");
+        $stmt->execute([$table, $column]);
+        return ((int)$stmt->fetchColumn() > 0);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function request_ensure_department_head_columns(PDO $pdo): void
+{
+    try {
+        if (!request_table_column_exists($pdo, 'users', 'is_department_head')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN is_department_head TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!request_table_column_exists($pdo, 'users', 'head_department_id')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN head_department_id INT NULL");
+        }
+    } catch (Throwable $e) {
+        // Если у пользователя БД нет прав на ALTER, страницу не ломаем.
+        // Для ручного применения есть edu/migrations/017_teacher_department_heads.sql.
+    }
+}
+
+function request_is_teacher_role($role): bool
+{
+    $role = trim((string)$role);
+    $role = function_exists('mb_strtolower') ? mb_strtolower($role, 'UTF-8') : strtolower($role);
+    return in_array($role, ['teacher', '3', 'преподаватель', 'препод', 'технолог'], true);
+}
+
+request_ensure_department_head_columns($pdo);
 
 $user = getCurrentUser();
 $userId = $_GET['id'] ?? null;
@@ -29,6 +71,24 @@ if (!$editUser) {
 $stmt = $pdo->query("SELECT role_code, role_name_ru FROM roles ORDER BY role_name_ru ASC");
 $roles = $stmt->fetchAll();
 
+$departmentHeadColumnsAvailable = request_table_column_exists($pdo, 'users', 'is_department_head')
+    && request_table_column_exists($pdo, 'users', 'head_department_id');
+
+$departments = [];
+try {
+    $departments = $pdo->query("
+        SELECT id, department_name
+        FROM (
+            SELECT id, MIN(department_name) AS department_name
+            FROM departments
+            GROUP BY id
+        ) d
+        ORDER BY department_name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $departments = [];
+}
+
 $success = '';
 $error = '';
 
@@ -39,6 +99,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'];
     $position = $_POST['position'];
     $newPassword = $_POST['new_password'] ?? '';
+    $isDepartmentHead = ($departmentHeadColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_department_head'])) ? 1 : 0;
+    $headDepartmentId = null;
+    if ($isDepartmentHead) {
+        $headDepartmentId = ($_POST['head_department_id'] ?? '') !== '' ? (int)$_POST['head_department_id'] : null;
+        if (!$headDepartmentId) {
+            $error = 'Выберите отделение для заведующего.';
+        }
+    }
     
     // Проверка уникальности логина
     if ($username !== $editUser['username']) {
@@ -51,16 +119,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (!$error) {
         // Обновление данных
+        $setSql = "username = ?, full_name = ?, role = ?, position = ?";
+        $updateParams = [$username, $fullName, $role, $position];
+
+        if ($departmentHeadColumnsAvailable) {
+            $setSql .= ", is_department_head = ?, head_department_id = ?";
+            $updateParams[] = $isDepartmentHead;
+            $updateParams[] = $isDepartmentHead ? $headDepartmentId : null;
+        }
+
         if ($newPassword) {
             $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("UPDATE users SET username = ?, full_name = ?, role = ?, position = ?, password = ? WHERE id = ?");
-            $stmt->execute([$username, $fullName, $role, $position, $hashedPassword, $userId]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE users SET username = ?, full_name = ?, role = ?, position = ? WHERE id = ?");
-            $stmt->execute([$username, $fullName, $role, $position, $userId]);
+            $setSql .= ", password = ?";
+            $updateParams[] = $hashedPassword;
         }
+
+        $updateParams[] = $userId;
+        $stmt = $pdo->prepare("UPDATE users SET $setSql WHERE id = ?");
+        $stmt->execute($updateParams);
         
-        clearPermissionsCache();
+        if (function_exists('clearPermissionsCache')) {
+            clearPermissionsCache();
+        }
         $success = 'Профиль успешно обновлён!';
         
         // Обновляем данные для отображения
@@ -85,6 +165,10 @@ if (!$currentRoleName) {
     ];
     $currentRoleName = $oldRoleNames[$editUser['role']] ?? 'Неизвестная роль';
 }
+
+$isDepartmentHeadChecked = $departmentHeadColumnsAvailable && ((int)($editUser['is_department_head'] ?? 0) === 1);
+$selectedHeadDepartmentId = $departmentHeadColumnsAvailable ? (int)($editUser['head_department_id'] ?? 0) : 0;
+$isTeacherSelected = request_is_teacher_role($editUser['role'] ?? '');
 
 $currentLang = getCurrentLanguage();
 ?>
@@ -177,6 +261,46 @@ $currentLang = getCurrentLanguage();
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+
+                            <?php if ($departmentHeadColumnsAvailable): ?>
+                            <!-- Заведующий отделением -->
+                            <div id="departmentHeadBlock" class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <label class="flex items-start gap-3 text-sm font-medium text-gray-700">
+                                    <input type="checkbox"
+                                           id="isDepartmentHead"
+                                           name="is_department_head"
+                                           value="1"
+                                           class="mt-1"
+                                           <?= ($isDepartmentHeadChecked && $isTeacherSelected) ? 'checked' : '' ?>
+                                           <?= $isTeacherSelected ? '' : 'disabled' ?>>
+                                    <span>
+                                        Назначить преподавателя заведующим отделением
+                                        <span class="block text-xs text-gray-500 font-normal mt-1">
+                                            На главной странице edu ему будут видны все студенты из групп выбранного отделения.
+                                            Без этой отметки преподаватель видит только группы, где он указан куратором.
+                                        </span>
+                                    </span>
+                                </label>
+
+                                <div class="mt-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Отделение</label>
+                                    <select name="head_department_id"
+                                            id="headDepartmentId"
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                            <?= ($isDepartmentHeadChecked && $isTeacherSelected) ? '' : 'disabled' ?>>
+                                        <option value="">Выберите отделение</option>
+                                        <?php foreach ($departments as $dept): ?>
+                                            <option value="<?= (int)$dept['id'] ?>" <?= $selectedHeadDepartmentId === (int)$dept['id'] ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($dept['department_name']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <?php if (!$departments): ?>
+                                        <p class="text-xs text-red-600 mt-2">Отделения не найдены. Сначала добавьте отделение в разделе кабинетов/отделений.</p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
                             
                             <!-- Должность -->
                             <div>
@@ -328,5 +452,36 @@ $currentLang = getCurrentLanguage();
         
     </div>
     
+<?php if ($departmentHeadColumnsAvailable): ?>
+<script>
+(function () {
+    const roleSelect = document.querySelector('select[name="role"]');
+    const headCheckbox = document.getElementById('isDepartmentHead');
+    const departmentSelect = document.getElementById('headDepartmentId');
+    const teacherCodes = ['teacher', '3', 'преподаватель', 'препод', 'технолог'];
+
+    function isTeacherRole(value) {
+        return teacherCodes.includes(String(value || '').trim().toLowerCase());
+    }
+
+    function syncDepartmentHeadControls() {
+        if (!roleSelect || !headCheckbox || !departmentSelect) return;
+        const teacher = isTeacherRole(roleSelect.value);
+        headCheckbox.disabled = !teacher;
+        if (!teacher) {
+            headCheckbox.checked = false;
+        }
+        departmentSelect.disabled = !teacher || !headCheckbox.checked;
+        if (departmentSelect.disabled) {
+            departmentSelect.value = '';
+        }
+    }
+
+    roleSelect && roleSelect.addEventListener('change', syncDepartmentHeadControls);
+    headCheckbox && headCheckbox.addEventListener('change', syncDepartmentHeadControls);
+    syncDepartmentHeadControls();
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

@@ -28,7 +28,7 @@ if (isset($_GET['delete_role'])) {
 $tab = $_GET['tab'] ?? 'users';
 $allUsers=$pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll();
 $totalUsers=count($allUsers);
-$allRoles=$pdo->query("SELECT r.*,COUNT(u.id) as users_count FROM roles r LEFT JOIN users u ON u.role=r.role_code GROUP BY r.id ORDER BY r.created_at ASC")->fetchAll();
+$allRoles=$pdo->query("SELECT r.*, COALESCE(uc.users_count, 0) AS users_count FROM roles r LEFT JOIN (SELECT role, COUNT(*) AS users_count FROM users GROUP BY role) uc ON uc.role = r.role_code ORDER BY r.created_at ASC")->fetchAll();
 $currentLang=getCurrentLanguage();
 $nameParts=explode(' ',trim($user['full_name']));
 $initials=implode('',array_map(fn($p)=>mb_strtoupper(mb_substr($p,0,1)),array_slice($nameParts,0,2)));
