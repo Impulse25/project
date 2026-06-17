@@ -61,6 +61,8 @@ $specialtyCode = trim((string)($student['curriculum_specialty_code'] ?: $student
 $specialtyName = trim((string)($student['curriculum_specialty_name'] ?: $student['specialty_name'] ?: ''));
 $qualification = trim((string)($student['curriculum_qualification'] ?: $student['specialty_qualification'] ?: ''));
 $yearStarted = (string)($student['year_started'] ?? '');
+$enrollmentCourse = (int)($student['course'] ?? 0);
+$enrollmentCourseText = $enrollmentCourse > 0 ? (string)$enrollmentCourse : '____';
 $birthDate = !empty($student['birth_date']) ? date('d.m.Y', strtotime($student['birth_date'])) : '';
 $birthYear = !empty($student['birth_date']) ? date('Y', strtotime($student['birth_date'])) : '';
 $enrollDateText = $yearStarted !== '' ? '«___1__»____сентября_____' . $yearStarted . '___г.' : '«____»________________20____г.';
@@ -68,33 +70,39 @@ $enrollDateText = $yearStarted !== '' ? '«___1__»____сентября_____' . 
 $gradeLookup = edu_student_card_grade_lookup($pdo, $studentId);
 $subjects = edu_student_card_subject_rows($pdo, $curriculumId, $gradeLookup);
 $practices = edu_student_card_practice_rows($subjects);
+$courseworks = edu_student_card_coursework_rows($subjects, $gradeLookup, $student);
 $academicSubjects = array_values(array_filter($subjects, static fn($r) => !$r['is_practice']));
 $courseworkGradeLabel = edu_student_card_score_label_0_100($student['card_coursework_grade'] ?? '');
 
 $page1Left = '';
+$allPractices = array_merge($practices['study'], $practices['production']);
+usort($allPractices, static function ($a, $b) {
+    $semCmp = (int)($a['semester'] ?? 0) <=> (int)($b['semester'] ?? 0);
+    if ($semCmp !== 0) return $semCmp;
+    return strcmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+});
+
 $page1Left .= card_p('III.    Практика', 'center', true, 20);
-$page1Left .= card_p('а) учебная', 'center', true, 18);
-$page1Left .= edu_student_card_practice_table($practices['study']);
-$page1Left .= card_p('б) производственная', 'center', true, 18);
-$page1Left .= edu_student_card_practice_table($practices['production']);
+$page1Left .= card_p('а) производственная', 'center', true, 18);
+$page1Left .= edu_student_card_practice_table($allPractices);
 $page1Left .= card_p('IV.    Число пропущенных занятий', 'center', true, 20);
-$page1Left .= edu_student_card_absence_table();
+$absenceRows = edu_student_card_absence_rows($pdo, $studentId, (int)($student['year_started'] ?? 0));
+$page1Left .= edu_student_card_absence_table($absenceRows);
 $page1Left .= card_p('V.    Курсовая работа', 'center', true, 20);
-$page1Left .= card_p('Тема «' . card_val($student, 'card_coursework_topic', '________________________________________________') . '»', 'both', false, 18);
-$page1Left .= card_p('Оценка ГКК __' . ($courseworkGradeLabel ?: '________________') . '__________________________________________', 'left', true, 18);
+$page1Left .= edu_student_card_coursework_table($courseworks);
 $page1Left .= card_p('VI.    Государственные экзамены', 'center', true, 20);
 $page1Left .= edu_student_card_state_exam_table($student);
 $page1Left .= card_p('Присвоена квалификация ' . ($qualification ?: '____________________________'), 'left', false, 18, true);
 
 $page1Right = '';
-$page1Right .= card_p('Министерство образования и науки Республики Казахстан', 'center', true, 18);
-$page1Right .= card_p('Саранский гуманитарно-технический колледж им.Абая Кунанбаева', 'center', true, 18);
+$page1Right .= card_p('Министерство просвещения и науки Республики Казахстан', 'center', true, 18);
+$page1Right .= card_p('Саранский высший гуманитарно-технический колледж им.Абая Кунанбаева', 'center', true, 18);
 $page1Right .= card_p('город Сарань, проспект Ленина 14', 'center', true, 18);
 $page1Right .= card_p('', 'center', false, 12);
 $page1Right .= card_p('Л И Ч Н А Я    К А Р Т О Ч К А', 'center', true, 24);
 $page1Right .= card_p('', 'center', false, 12);
 $page1Right .= card_p('Ф.И.О. студента        ' . $fio, 'left', true, 18, true);
-$page1Right .= card_p('Зачислен на ________1________курс в группу_______' . ($groupName ?: '____________') . '___________', 'left', true, 18);
+$page1Right .= card_p('Зачислен на _______' . $enrollmentCourseText . '__________курс в группу ' . ($groupName ?: '____________'), 'left', true, 18);
 $page1Right .= card_p('По специальности  ' . trim($specialtyCode . ' «' . $specialtyName . '»'), 'left', true, 18, true);
 $page1Right .= card_p($enrollDateText, 'center', true, 18);
 $page1Right .= card_p('', 'center', false, 24);
@@ -112,17 +120,13 @@ $page1Right .= card_p(card_val($student, 'card_promotion_orders', "2 курс __
 $page1Right .= card_bullet('о выпуске из учебного заведения ' . card_val($student, 'card_graduation_order', '________________________________'));
 $page1Right .= card_bullet('Куда направлен на работу и на какую должность ' . card_val($student, 'card_job_assignment', '________________'));
 
-$page2Left = '';
-$page2Right = '';
-[$leftSubjects, $rightSubjects] = edu_student_card_split_subjects($academicSubjects);
-$page2Left .= card_p('II.    Оценка успеваемости и поведения', 'center', true, 20);
-$page2Left .= edu_student_card_grades_table($leftSubjects, $gradeLookup, true);
-$page2Right .= edu_student_card_grades_table($rightSubjects, $gradeLookup, false);
+$finalGradeRows = edu_student_card_final_grade_rows($subjects, $gradeLookup);
 
 $body = '';
 $body .= edu_student_card_two_column_page($page1Left, $page1Right);
 $body .= '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-$body .= edu_student_card_two_column_page($page2Left, $page2Right);
+$body .= card_p('II.    Оценка успеваемости и поведения', 'center', true, 20);
+$body .= edu_student_card_final_grades_table($finalGradeRows);
 
 $tmp = tempnam(sys_get_temp_dir(), 'student_card_') . '.docx';
 edu_docx_make($body, $tmp, true);
@@ -242,12 +246,149 @@ function edu_student_card_simple_table(array $rows, array $widths, int $fontSize
     return $xml . '</w:tbl>';
 }
 
-function edu_student_card_absence_table(): string
+function edu_student_card_absence_rows(PDO $pdo, int $studentId, int $yearStarted): array
 {
+    $result = [
+        'excused' => array_fill(1, 8, 0),
+        'unexcused' => array_fill(1, 8, 0),
+    ];
+
+    if ($studentId <= 0 || !edu_table_exists($pdo, 'att_attendance')) {
+        return $result;
+    }
+
+    $semesters = [];
+    if (edu_table_exists($pdo, 'edu_semesters')) {
+        try {
+            $semesterRows = $pdo->query("
+                SELECT year_start, semester_num, start_date, end_date
+                FROM edu_semesters
+                WHERE start_date IS NOT NULL AND end_date IS NOT NULL AND semester_num IN (1, 2)
+                ORDER BY start_date
+            ")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($semesterRows as $row) {
+                $semesters[] = [
+                    'year_start' => (int)($row['year_start'] ?? 0),
+                    'semester_num' => (int)($row['semester_num'] ?? 0),
+                    'start_date' => (string)($row['start_date'] ?? ''),
+                    'end_date' => (string)($row['end_date'] ?? ''),
+                ];
+            }
+        } catch (Throwable $e) {
+            $semesters = [];
+        }
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT `date`, `status`, COALESCE(`hours_missed`, 0) AS hours_missed
+            FROM att_attendance
+            WHERE student_id = ?
+              AND `status` IN ('absent', 'excused', 'late')
+              AND COALESCE(`hours_missed`, 0) > 0
+            ORDER BY `date`, id
+        ");
+        $stmt->execute([$studentId]);
+        $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return $result;
+    }
+
+    foreach ($records as $record) {
+        $semester = edu_student_card_absence_semester((string)($record['date'] ?? ''), $semesters, $yearStarted);
+        if ($semester < 1 || $semester > 8) {
+            continue;
+        }
+
+        $hours = (int)($record['hours_missed'] ?? 0);
+        if ($hours <= 0) {
+            continue;
+        }
+
+        $status = (string)($record['status'] ?? '');
+        if ($status === 'excused') {
+            $result['excused'][$semester] += $hours;
+        } else {
+            // В модуле attendance отдельного поля для неуважительной причины нет:
+            // обычное отсутствие и опоздание с пропущенными часами считаются
+            // неуважительными пропусками для личной карточки.
+            $result['unexcused'][$semester] += $hours;
+        }
+    }
+
+    return $result;
+}
+
+function edu_student_card_absence_semester(string $date, array $semesters, int $yearStarted): int
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return 0;
+    }
+
+    foreach ($semesters as $semesterRow) {
+        $start = (string)($semesterRow['start_date'] ?? '');
+        $end = (string)($semesterRow['end_date'] ?? '');
+        $semesterNum = (int)($semesterRow['semester_num'] ?? 0);
+        $semesterYearStart = (int)($semesterRow['year_start'] ?? 0);
+        if ($start === '' || $end === '' || $semesterNum < 1 || $semesterNum > 2) {
+            continue;
+        }
+        if ($date >= $start && $date <= $end) {
+            if ($yearStarted > 0 && $semesterYearStart > 0) {
+                return (($semesterYearStart - $yearStarted) * 2) + $semesterNum;
+            }
+            return $semesterNum;
+        }
+    }
+
+    $ts = strtotime($date);
+    if (!$ts) {
+        return 0;
+    }
+
+    $year = (int)date('Y', $ts);
+    $month = (int)date('n', $ts);
+    if ($month >= 9) {
+        $academicYearStart = $year;
+        $semesterNum = 1;
+    } elseif ($month <= 6) {
+        $academicYearStart = $year - 1;
+        $semesterNum = 2;
+    } else {
+        return 0;
+    }
+
+    if ($yearStarted > 0) {
+        return (($academicYearStart - $yearStarted) * 2) + $semesterNum;
+    }
+
+    return $semesterNum;
+}
+
+function edu_student_card_absence_cell($value): string
+{
+    $value = (int)$value;
+    return $value > 0 ? (string)$value : '';
+}
+
+function edu_student_card_absence_table(array $absenceRows = []): string
+{
+    $excused = $absenceRows['excused'] ?? array_fill(1, 8, 0);
+    $unexcused = $absenceRows['unexcused'] ?? array_fill(1, 8, 0);
+
+    $excusedRow = ['Уважительные'];
+    $unexcusedRow = ['Неуважительные'];
+    for ($semester = 1; $semester <= 8; $semester++) {
+        $excusedRow[] = edu_student_card_absence_cell($excused[$semester] ?? 0);
+        $unexcusedRow[] = edu_student_card_absence_cell($unexcused[$semester] ?? 0);
+    }
+    $excusedRow[] = edu_student_card_absence_cell(array_sum($excused));
+    $unexcusedRow[] = edu_student_card_absence_cell(array_sum($unexcused));
+
     $rows = [
         ['Причины', '1', '2', '3', '4', '5', '6', '7', '8', 'Всего'],
-        ['Уважительные', '', '', '', '', '', '', '', '', '-'],
-        ['Неуважительные', '', '', '', '', '', '', '', '', '-'],
+        $excusedRow,
+        $unexcusedRow,
     ];
     return edu_student_card_simple_table($rows, [1500, 450, 450, 450, 450, 450, 450, 450, 450, 700], 15);
 }
@@ -278,9 +419,84 @@ function edu_student_card_practice_table(array $items): string
     return edu_student_card_simple_table($rows, [450, 3600, 900, 1100, 900], 15);
 }
 
+
+function edu_student_card_coursework_rows(array $subjects, array $lookup, array $student): array
+{
+    $rows = [];
+    foreach ($subjects as $subject) {
+        if (edu_curriculum_export_is_service_row($subject) || edu_student_card_is_parent_section_code($subject['index_code'] ?? '')) {
+            continue;
+        }
+        if ((float)($subject['coursework_hours'] ?? 0) <= 0) {
+            continue;
+        }
+        $title = trim((string)($subject['name'] ?? ''));
+        $indexCode = trim((string)($subject['index_code'] ?? ''));
+        if ($indexCode !== '' && !edu_student_card_is_parent_section_code($indexCode)) {
+            $title = trim($indexCode . ' ' . $title);
+        }
+        if ($title === '') continue;
+
+        $semesters = array_keys((array)($subject['semester_hours'] ?? []));
+        if (!$semesters) {
+            $semesters = array_values(array_unique(array_map('intval', $subject['semesters'] ?? [])));
+        }
+        sort($semesters);
+        if (!$semesters) $semesters = [0];
+
+        foreach ($semesters as $semester) {
+            $semester = (int)$semester;
+            if ($semester < 0 || $semester > 8) continue;
+            $score = $semester > 0 ? edu_student_card_subject_score($lookup, $subject, $semester, 'coursework') : null;
+            $rows[] = [
+                'name' => $title,
+                'semester' => $semester > 0 ? (string)$semester : '',
+                'hours' => edu_format_decimal($subject['coursework_hours'] ?? '', false),
+                'mark' => edu_student_card_letter_gpa_label($score, false),
+            ];
+        }
+    }
+
+    $manualTopic = trim((string)($student['card_coursework_topic'] ?? ''));
+    $manualGrade = edu_student_card_score_label_0_100($student['card_coursework_grade'] ?? '');
+    if ($manualTopic !== '' || $manualGrade !== '') {
+        $rows[] = [
+            'name' => $manualTopic !== '' ? $manualTopic : 'Курсовая работа',
+            'semester' => '',
+            'hours' => '',
+            'mark' => $manualGrade,
+        ];
+    }
+
+    usort($rows, static function ($a, $b) {
+        $semCmp = (int)($a['semester'] ?: 99) <=> (int)($b['semester'] ?: 99);
+        if ($semCmp !== 0) return $semCmp;
+        return strcmp((string)$a['name'], (string)$b['name']);
+    });
+    return $rows;
+}
+
+function edu_student_card_coursework_table(array $items): string
+{
+    $rows = [['№', 'Наименование курсовой работы', 'Семестр', 'Часы', 'Оценка']];
+    foreach (array_values($items) as $i => $item) {
+        $rows[] = [
+            (string)($i + 1) . '.',
+            (string)($item['name'] ?? ''),
+            (string)($item['semester'] ?? ''),
+            (string)($item['hours'] ?? ''),
+            (string)($item['mark'] ?? ''),
+        ];
+    }
+    if (count($rows) === 1) {
+        $rows[] = ['1.', '', '', '', ''];
+    }
+    return edu_student_card_simple_table($rows, [450, 3900, 850, 850, 1100], 15);
+}
+
 function edu_student_card_grade_lookup(PDO $pdo, int $studentId): array
 {
-    $stmt = $pdo->prepare("\n        SELECT eg.id, eg.student_id,\n               COALESCE(eg.curriculum_module_id, gs.curriculum_module_id) AS module_id,\n               COALESCE(eg.curriculum_semester, gs.curriculum_semester) AS semester_num,\n               eg.grade, eg.passed, eg.absent,\n               m.index_code AS module_index_code,\n               m.name AS module_name,\n               m.component_name AS module_component_name,\n               sub.code AS subject_code,\n               sub.name_ru AS subject_name,\n               COALESCE(eg.updated_at, gs.updated_at, eg.created_at, gs.created_at) AS changed_at\n        FROM edu_grades eg\n        JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id\n        LEFT JOIN edu_curriculum_modules m ON m.id = COALESCE(eg.curriculum_module_id, gs.curriculum_module_id)\n        LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id\n        WHERE eg.student_id = ?\n        ORDER BY changed_at ASC, eg.id ASC\n    ");
+    $stmt = $pdo->prepare("\n        SELECT eg.id, eg.student_id,\n               COALESCE(eg.curriculum_module_id, gs.curriculum_module_id) AS module_id,\n               COALESCE(eg.curriculum_semester, gs.curriculum_semester) AS semester_num,\n               gs.type AS sheet_type,\n               eg.grade, eg.passed, eg.absent,\n               m.index_code AS module_index_code,\n               m.name AS module_name,\n               m.component_name AS module_component_name,\n               sub.code AS subject_code,\n               sub.name_ru AS subject_name,\n               COALESCE(eg.updated_at, gs.updated_at, eg.created_at, gs.created_at) AS changed_at\n        FROM edu_grades eg\n        JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id\n        LEFT JOIN edu_curriculum_modules m ON m.id = COALESCE(eg.curriculum_module_id, gs.curriculum_module_id)\n        LEFT JOIN edu_subjects sub ON sub.id = gs.subject_id\n        WHERE eg.student_id = ?\n          AND (gs.status IS NULL OR gs.status <> 'rejected')\n        ORDER BY changed_at ASC, eg.id ASC\n    ");
     $stmt->execute([$studentId]);
     $lookup = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -294,16 +510,37 @@ function edu_student_card_grade_lookup(PDO $pdo, int $studentId): array
         $score = !empty($row['passed']) ? 100 : edu_student_card_normalize_grade_value($row['grade'] ?? null);
         if (!empty($row['absent'])) $score = null;
 
+        $sheetType = (string)($row['sheet_type'] ?? 'current');
+        $isCoursework = ($sheetType === 'coursework');
         $keys = [];
-        if ($moduleId > 0) $keys[] = $moduleId . ':' . $semester;
+        if ($moduleId > 0) {
+            if ($isCoursework) {
+                $keys[] = 'coursework:id:' . $moduleId . ':' . $semester;
+            } else {
+                $keys[] = $moduleId . ':' . $semester;
+                $keys[] = 'normal:id:' . $moduleId . ':' . $semester;
+            }
+        }
 
         foreach (['module_index_code', 'subject_code'] as $field) {
             $norm = edu_student_card_norm_key((string)($row[$field] ?? ''));
-            if ($norm !== '') $keys[] = 'idx:' . $norm . ':' . $semester;
+            if ($norm === '') continue;
+            if ($isCoursework) {
+                $keys[] = 'coursework:idx:' . $norm . ':' . $semester;
+            } else {
+                $keys[] = 'idx:' . $norm . ':' . $semester;
+                $keys[] = 'normal:idx:' . $norm . ':' . $semester;
+            }
         }
         foreach (['module_component_name', 'module_name', 'subject_name'] as $field) {
             $norm = edu_student_card_norm_key((string)($row[$field] ?? ''));
-            if ($norm !== '') $keys[] = 'name:' . $norm . ':' . $semester;
+            if ($norm === '') continue;
+            if ($isCoursework) {
+                $keys[] = 'coursework:name:' . $norm . ':' . $semester;
+            } else {
+                $keys[] = 'name:' . $norm . ':' . $semester;
+                $keys[] = 'normal:name:' . $norm . ':' . $semester;
+            }
         }
 
         foreach (array_unique($keys) as $key) {
@@ -359,7 +596,7 @@ function edu_student_card_norm_token($value): string
 function edu_student_card_is_parent_section_code($value): bool
 {
     $code = edu_student_card_norm_token($value);
-    return $code !== '' && (bool)preg_match('/^(ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
+    return $code !== '' && (bool)preg_match('/^(ООД|ООМ|БМ|ПМ)(?:\d+\.?)?$/u', $code);
 }
 
 function edu_student_card_norm_key(string $value): string
@@ -380,16 +617,37 @@ function edu_student_card_store_score(array &$lookup, string $key, ?int $score, 
     }
 }
 
-function edu_student_card_subject_score(array $lookup, array $subject, int $semester): ?int
+function edu_student_card_subject_score(array $lookup, array $subject, int $semester, string $assessmentType = 'normal'): ?int
 {
     $keys = [];
-    if (!empty($subject['id'])) $keys[] = (int)$subject['id'] . ':' . $semester;
+    $assessmentType = $assessmentType === 'coursework' ? 'coursework' : 'normal';
+    if (!empty($subject['id'])) {
+        if ($assessmentType === 'coursework') {
+            $keys[] = 'coursework:id:' . (int)$subject['id'] . ':' . $semester;
+        } else {
+            $keys[] = 'normal:id:' . (int)$subject['id'] . ':' . $semester;
+            $keys[] = (int)$subject['id'] . ':' . $semester;
+        }
+    }
     $idx = edu_student_card_norm_key((string)($subject['index_code'] ?? ''));
-    if ($idx !== '') $keys[] = 'idx:' . $idx . ':' . $semester;
+    if ($idx !== '') {
+        if ($assessmentType === 'coursework') {
+            $keys[] = 'coursework:idx:' . $idx . ':' . $semester;
+        } else {
+            $keys[] = 'normal:idx:' . $idx . ':' . $semester;
+            $keys[] = 'idx:' . $idx . ':' . $semester;
+        }
+    }
 
     foreach (['component_name', 'name', 'original_name', 'practice_name'] as $field) {
         $name = edu_student_card_norm_key((string)($subject[$field] ?? ''));
-        if ($name !== '') $keys[] = 'name:' . $name . ':' . $semester;
+        if ($name === '') continue;
+        if ($assessmentType === 'coursework') {
+            $keys[] = 'coursework:name:' . $name . ':' . $semester;
+        } else {
+            $keys[] = 'normal:name:' . $name . ':' . $semester;
+            $keys[] = 'name:' . $name . ':' . $semester;
+        }
     }
 
     foreach (array_unique($keys) as $key) {
@@ -401,11 +659,11 @@ function edu_student_card_subject_score(array $lookup, array $subject, int $seme
 function edu_student_card_subject_rows(PDO $pdo, int $curriculumId, array $gradeLookup): array
 {
     if ($curriculumId <= 0) return [];
-    $stmt = $pdo->prepare("\n        SELECT m.id, m.name, m.component_name, m.index_code, m.module_type, m.total_hours, m.sort_order,\n               m.parent_id, COALESCE(m.is_summary, 0) AS is_summary,\n               p.name AS parent_name, p.component_name AS parent_component_name, p.index_code AS parent_index_code, p.module_type AS parent_module_type,\n               gp.name AS grandparent_name, gp.component_name AS grandparent_component_name, gp.index_code AS grandparent_index_code, gp.module_type AS grandparent_module_type,\n               GROUP_CONCAT(DISTINCT d.semester_num ORDER BY d.semester_num SEPARATOR ',') AS semesters,\n               GROUP_CONCAT(CONCAT(d.semester_num, ':', d.hours) ORDER BY d.semester_num SEPARATOR ',') AS semester_hours,\n               SUM(COALESCE(d.hours, 0)) AS distributed_hours\n        FROM edu_curriculum_modules m\n        LEFT JOIN edu_curriculum_modules p ON p.id = m.parent_id\n        LEFT JOIN edu_curriculum_modules gp ON gp.id = p.parent_id\n        LEFT JOIN edu_curriculum_distribution d ON d.module_id = m.id AND d.hours > 0\n        WHERE m.curriculum_id = ?\n          AND LOWER(TRIM(COALESCE(m.name, ''))) NOT LIKE 'итого%' AND LOWER(TRIM(COALESCE(m.component_name, ''))) NOT LIKE 'итого%'\n          AND (TRIM(COALESCE(m.name, '')) <> '' OR TRIM(COALESCE(m.component_name, '')) <> '')\n          AND (m.module_type IS NULL OR m.module_type <> 'ИТОГО')\n          AND (\n                COALESCE(m.is_summary, 0) = 0\n                OR d.hours > 0\n                OR LOWER(CONCAT_WS(' ', COALESCE(m.name, ''), COALESCE(m.component_name, ''), COALESCE(p.name, ''), COALESCE(p.component_name, ''), COALESCE(gp.name, ''), COALESCE(gp.component_name, ''), COALESCE(m.index_code, ''), COALESCE(p.index_code, ''), COALESCE(gp.index_code, ''))) REGEXP 'практик|производствен|преддиплом|профессиональн|(^|[[:space:]])уп[[:space:]]*[0-9]|(^|[[:space:]])пп[[:space:]]*[0-9]'\n          )\n          AND (COALESCE(m.total_hours, 0) > 0 OR COALESCE(m.credits, 0) > 0 OR d.hours > 0 OR COALESCE(m.exam_semester, '') <> '' OR COALESCE(m.credit_semester, '') <> '')\n        GROUP BY m.id\n        ORDER BY m.sort_order, m.id\n    ");
+    $stmt = $pdo->prepare("\n        SELECT m.id, m.name, m.component_name, m.index_code, m.module_type, m.total_hours, m.credits, m.coursework_hours, m.sort_order,\n               m.parent_id, COALESCE(m.is_summary, 0) AS is_summary,\n               p.name AS parent_name, p.component_name AS parent_component_name, p.index_code AS parent_index_code, p.module_type AS parent_module_type,\n               gp.name AS grandparent_name, gp.component_name AS grandparent_component_name, gp.index_code AS grandparent_index_code, gp.module_type AS grandparent_module_type,\n               GROUP_CONCAT(DISTINCT d.semester_num ORDER BY d.semester_num SEPARATOR ',') AS semesters,\n               GROUP_CONCAT(CONCAT(d.semester_num, ':', d.hours) ORDER BY d.semester_num SEPARATOR ',') AS semester_hours,\n               SUM(COALESCE(d.hours, 0)) AS distributed_hours\n        FROM edu_curriculum_modules m\n        LEFT JOIN edu_curriculum_modules p ON p.id = m.parent_id\n        LEFT JOIN edu_curriculum_modules gp ON gp.id = p.parent_id\n        LEFT JOIN edu_curriculum_distribution d ON d.module_id = m.id AND d.hours > 0\n        WHERE m.curriculum_id = ?\n          AND LOWER(TRIM(COALESCE(m.name, ''))) NOT LIKE 'итого%' AND LOWER(TRIM(COALESCE(m.component_name, ''))) NOT LIKE 'итого%'\n          AND (TRIM(COALESCE(m.name, '')) <> '' OR TRIM(COALESCE(m.component_name, '')) <> '')\n          AND (m.module_type IS NULL OR m.module_type <> 'ИТОГО')\n          AND (\n                COALESCE(m.is_summary, 0) = 0\n                OR d.hours > 0\n                OR LOWER(CONCAT_WS(' ', COALESCE(m.name, ''), COALESCE(m.component_name, ''), COALESCE(p.name, ''), COALESCE(p.component_name, ''), COALESCE(gp.name, ''), COALESCE(gp.component_name, ''), COALESCE(m.index_code, ''), COALESCE(p.index_code, ''), COALESCE(gp.index_code, ''))) REGEXP 'практик|производствен|преддиплом|профессиональн|(^|[[:space:]])уп[[:space:]]*[0-9]|(^|[[:space:]])пп[[:space:]]*[0-9]'\n          )\n          AND (COALESCE(m.total_hours, 0) > 0 OR COALESCE(m.credits, 0) > 0 OR COALESCE(m.coursework_hours, 0) > 0 OR d.hours > 0 OR COALESCE(m.exam_semester, '') <> '' OR COALESCE(m.credit_semester, '') <> '')\n        GROUP BY m.id\n        ORDER BY m.sort_order, m.id\n    ");
     $stmt->execute([$curriculumId]);
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        if (edu_student_card_is_parent_section_code($r['index_code'] ?? '')) {
+        if (edu_student_card_is_parent_section_code($r['index_code'] ?? '') || edu_curriculum_export_is_service_row($r)) {
             continue;
         }
         $semesters = [];
@@ -512,6 +770,8 @@ function edu_student_card_subject_rows(PDO $pdo, int $curriculumId, array $grade
             'index_code' => $indexCode,
             'module_type' => $moduleType,
             'total_hours' => (int)($r['total_hours'] ?? 0),
+            'credits' => $r['credits'] ?? '',
+            'coursework_hours' => $r['coursework_hours'] ?? '',
             'semesters' => array_keys($semesters),
             'semester_hours' => $semesterHours,
             'is_practice' => $isPractice,
@@ -543,7 +803,7 @@ function edu_student_card_practice_rows(array $subjects): array
             if ($name === '') continue;
             $category = !empty($s['is_production_practice']) ? 'production' : 'study';
             $key = edu_student_card_norm_key($name) . ':' . $sem;
-            $mark = edu_student_card_mark_by_score(edu_student_card_subject_score($GLOBALS['gradeLookup'], $s, $sem));
+            $mark = edu_student_card_letter_gpa_label(edu_student_card_subject_score($GLOBALS['gradeLookup'], $s, $sem), false);
 
             if (!isset($aggregate[$category][$key])) {
                 $aggregate[$category][$key] = [
@@ -585,6 +845,152 @@ function edu_student_card_mark_by_score(?int $score): string
     if ($score >= 70) return '4';
     if ($score >= 50) return '3';
     return '2';
+}
+
+function edu_student_card_letter_gpa_label(?int $score, bool $comma = false): string
+{
+    if ($score === null) return '';
+    $scale = edu_score_scale($score);
+    $gpa = edu_format_decimal($scale['gpa'], $comma);
+    return trim($scale['letter'] . ($gpa !== '' ? ' ' . $gpa : ''));
+}
+
+function edu_student_card_course_from_semester(int $semester): string
+{
+    if ($semester <= 0) return '';
+    return (string)(int)ceil($semester / 2);
+}
+
+function edu_student_card_credit_text($value): string
+{
+    return edu_format_decimal($value, false);
+}
+
+function edu_student_card_final_grade_rows(array $subjects, array $lookup): array
+{
+    $rows = [];
+    $number = 1;
+
+    foreach ($subjects as $subject) {
+        if (edu_curriculum_export_is_service_row($subject)) {
+            continue;
+        }
+        $semesters = array_values(array_unique(array_map('intval', $subject['semesters'] ?? [])));
+        sort($semesters);
+        if (!$semesters) {
+            continue;
+        }
+
+        $title = trim((string)($subject['name'] ?? ''));
+        $indexCode = trim((string)($subject['index_code'] ?? ''));
+        if ($indexCode !== '' && !edu_student_card_is_parent_section_code($indexCode)) {
+            $title = trim($indexCode . ' ' . $title);
+        }
+
+        foreach ($semesters as $semester) {
+            if ($semester < 1 || $semester > 8) continue;
+            $score = edu_student_card_subject_score($lookup, $subject, $semester);
+            $scale = $score === null ? ['letter' => '', 'gpa' => '', 'traditional' => ''] : edu_score_scale($score);
+
+            $rows[] = [
+                'number' => (string)$number,
+                'name' => $title,
+                'credits' => edu_student_card_credit_text($subject['credits'] ?? ''),
+                'percent' => $score === null ? '' : (string)$score,
+                'letter' => $scale['letter'] ?? '',
+                'gpa' => isset($scale['gpa']) ? edu_format_decimal($scale['gpa'], true) : '',
+                'traditional' => edu_score_traditional_mark($score),
+                'semester' => (string)$semester,
+                'course' => edu_student_card_course_from_semester($semester),
+                'action' => '',
+            ];
+            $number++;
+        }
+    }
+
+    return $rows;
+}
+
+function edu_student_card_compact_p(string $text = '', string $align = 'left', bool $bold = false, int $size = 14): string
+{
+    $jc = in_array($align, ['left','center','right','both'], true) ? $align : 'left';
+    return '<w:p><w:pPr><w:jc w:val="' . $jc . '"/><w:spacing w:before="0" w:after="0"/></w:pPr>'
+        . card_run($text, $bold, $size)
+        . '</w:p>';
+}
+
+function edu_student_card_compact_cell(string $text, bool $bold = false, int $size = 14, string $align = 'center', int $width = 0, int $gridSpan = 1): string
+{
+    $tcPr = '<w:tcPr>';
+    if ($width > 0) $tcPr .= '<w:tcW w:w="' . $width . '" w:type="dxa"/>';
+    if ($gridSpan > 1) $tcPr .= '<w:gridSpan w:val="' . $gridSpan . '"/>';
+    $tcPr .= '<w:vAlign w:val="center"/>';
+    $tcPr .= '<w:tcMar><w:top w:w="24" w:type="dxa"/><w:left w:w="24" w:type="dxa"/><w:bottom w:w="24" w:type="dxa"/><w:right w:w="24" w:type="dxa"/></w:tcMar>';
+    $tcPr .= '<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>';
+    $tcPr .= '</w:tcPr>';
+    return '<w:tc>' . $tcPr . edu_student_card_compact_p($text, $align, $bold, $size) . '</w:tc>';
+}
+
+function edu_student_card_final_grades_table(array $rows): string
+{
+    $widths = [520, 3500, 1150, 1150, 1050, 1250, 1700, 900, 850, 1000];
+    $xml = '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>'
+        . '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        . '</w:tblBorders></w:tblPr><w:tblGrid>';
+    foreach ($widths as $w) $xml .= '<w:gridCol w:w="' . (int)$w . '"/>';
+    $xml .= '</w:tblGrid>';
+
+    $xml .= '<w:tr><w:trPr><w:tblHeader/></w:trPr>'
+        . edu_student_card_compact_cell('№', true, 14, 'center', $widths[0], 1)
+        . edu_student_card_compact_cell('Наименование дисциплины', true, 14, 'center', $widths[1], 1)
+        . edu_student_card_compact_cell('Количество кредитов', true, 14, 'center', $widths[2], 1)
+        . edu_student_card_compact_cell('Оценка', true, 14, 'center', array_sum(array_slice($widths, 3, 4)), 4)
+        . edu_student_card_compact_cell('Семестр', true, 14, 'center', $widths[7], 1)
+        . edu_student_card_compact_cell('Курс', true, 14, 'center', $widths[8], 1)
+        . edu_student_card_compact_cell('Действие', true, 14, 'center', $widths[9], 1)
+        . '</w:tr>';
+
+    $xml .= '<w:tr><w:trPr><w:tblHeader/></w:trPr>'
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[0])
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[1])
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[2])
+        . edu_student_card_compact_cell('В процентах', true, 14, 'center', $widths[3])
+        . edu_student_card_compact_cell('Буквенная', true, 14, 'center', $widths[4])
+        . edu_student_card_compact_cell('Цифровой эквивалент', true, 14, 'center', $widths[5])
+        . edu_student_card_compact_cell('Традиционная', true, 14, 'center', $widths[6])
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[7])
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[8])
+        . edu_student_card_compact_cell('', true, 14, 'center', $widths[9])
+        . '</w:tr>';
+
+    if (!$rows) {
+        $rows[] = ['number' => '', 'name' => '', 'credits' => '', 'percent' => '', 'letter' => '', 'gpa' => '', 'traditional' => '', 'semester' => '', 'course' => '', 'action' => ''];
+    }
+
+    foreach ($rows as $row) {
+        $name = (string)($row['name'] ?? '');
+        $len = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+        $rowHeight = $len > 80 ? 520 : ($len > 45 ? 420 : 300);
+        $xml .= '<w:tr><w:trPr><w:trHeight w:val="' . $rowHeight . '"/></w:trPr>'
+            . edu_student_card_compact_cell((string)($row['number'] ?? ''), false, 14, 'center', $widths[0])
+            . edu_student_card_compact_cell($name, false, 14, 'left', $widths[1])
+            . edu_student_card_compact_cell((string)($row['credits'] ?? ''), false, 14, 'center', $widths[2])
+            . edu_student_card_compact_cell((string)($row['percent'] ?? ''), false, 14, 'center', $widths[3])
+            . edu_student_card_compact_cell((string)($row['letter'] ?? ''), false, 14, 'center', $widths[4])
+            . edu_student_card_compact_cell((string)($row['gpa'] ?? ''), false, 14, 'center', $widths[5])
+            . edu_student_card_compact_cell((string)($row['traditional'] ?? ''), false, 14, 'center', $widths[6])
+            . edu_student_card_compact_cell((string)($row['semester'] ?? ''), false, 14, 'center', $widths[7])
+            . edu_student_card_compact_cell((string)($row['course'] ?? ''), false, 14, 'center', $widths[8])
+            . edu_student_card_compact_cell((string)($row['action'] ?? ''), false, 14, 'center', $widths[9])
+            . '</w:tr>';
+    }
+
+    return $xml . '</w:tbl>';
 }
 
 function edu_student_card_split_subjects(array $subjects): array

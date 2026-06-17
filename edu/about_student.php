@@ -22,8 +22,6 @@ $studentCardExtraColumns = [
     'promotion_orders' => 'Приказы о переводе на курсы',
     'graduation_order' => 'Приказ о выпуске',
     'job_assignment' => 'Направление на работу / должность',
-    'coursework_topic' => 'Тема курсовой работы',
-    'coursework_grade' => 'Оценка ГКК (0–100)',
     'state_exam_1' => 'Государственный экзамен 1',
     'state_exam_2' => 'Государственный экзамен 2',
     'state_exam_3' => 'Государственный экзамен 3',
@@ -141,7 +139,7 @@ if ($canEdit && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_card
         }
         foreach ($studentCardEnabledExtraColumns as $extraCol) {
             $cardInsertCols[] = $extraCol;
-            if (in_array($extraCol, ['coursework_grade', 'diploma_score'], true)) {
+            if ($extraCol === 'diploma_score') {
                 $rawScore = trim((string)($_POST[$extraCol] ?? ''));
                 if ($rawScore === '') {
                     $cardInsertVals[] = null;
@@ -378,10 +376,6 @@ $breadcrumbs     = [
         Дипломная книга
       </a>
       <?php endif ?>
-      <button class="btn btn-outline" onclick="window.print()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        Печать карточки
-      </button>
       <?php if ($canEdit): ?>
       <button class="btn btn-primary" onclick="toggleEdit()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -530,13 +524,13 @@ $breadcrumbs     = [
 
           <?php if ($studentCardEnabledExtraColumns): ?>
           <div class="edit-grid" style="margin-bottom:1.25rem">
-            <?php foreach (['promotion_orders', 'graduation_order', 'job_assignment', 'coursework_topic', 'coursework_grade', 'state_exam_1', 'state_exam_2', 'state_exam_3', 'diploma_topic', 'diploma_score'] as $extraField): ?>
+            <?php foreach (['promotion_orders', 'graduation_order', 'job_assignment', 'state_exam_1', 'state_exam_2', 'state_exam_3', 'diploma_topic', 'diploma_score'] as $extraField): ?>
               <?php if (in_array($extraField, $studentCardEnabledExtraColumns, true)): ?>
-              <div class="edit-field" style="<?= in_array($extraField, ['promotion_orders', 'job_assignment', 'coursework_topic', 'diploma_topic'], true) ? 'grid-column:1/-1' : '' ?>">
+              <div class="edit-field" style="<?= in_array($extraField, ['promotion_orders', 'job_assignment', 'diploma_topic'], true) ? 'grid-column:1/-1' : '' ?>">
                 <label><?= htmlspecialchars($studentCardExtraColumns[$extraField]) ?></label>
-                <?php if (in_array($extraField, ['promotion_orders', 'job_assignment', 'coursework_topic', 'diploma_topic'], true)): ?>
+                <?php if (in_array($extraField, ['promotion_orders', 'job_assignment', 'diploma_topic'], true)): ?>
                 <textarea name="<?= htmlspecialchars($extraField) ?>"><?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?></textarea>
-                <?php elseif (in_array($extraField, ['coursework_grade', 'diploma_score'], true)): ?>
+                <?php elseif ($extraField === 'diploma_score'): ?>
                 <input type="number" name="<?= htmlspecialchars($extraField) ?>" min="0" max="100" step="1" value="<?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?>">
                 <?php else: ?>
                 <input type="text" name="<?= htmlspecialchars($extraField) ?>" maxlength="255" value="<?= htmlspecialchars(edu_about_card_value($s, $extraField)) ?>">

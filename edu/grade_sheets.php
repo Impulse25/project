@@ -61,6 +61,54 @@ function edu_grade_lower($value): string
 }
 
 
+
+function edu_grade_valid_assessment_type(string $type): string
+{
+    return in_array($type, ['exam', 'credit', 'coursework', 'practice', 'current'], true) ? $type : 'current';
+}
+
+function edu_grade_selection_key(int $moduleId, string $assessmentType): string
+{
+    return $moduleId . ':' . edu_grade_valid_assessment_type($assessmentType);
+}
+
+function edu_grade_parse_module_selection($raw, string $fallbackType = 'current'): array
+{
+    $raw = trim((string)$raw);
+    $type = edu_grade_valid_assessment_type($fallbackType);
+    if (preg_match('/^(\d+)\s*[:|_-]\s*(exam|credit|coursework|practice|current)$/u', $raw, $m)) {
+        return [(int)$m[1], edu_grade_valid_assessment_type($m[2])];
+    }
+    if (preg_match('/^module_(\d+)_(exam|credit|coursework|practice|current)$/u', $raw, $m)) {
+        return [(int)$m[1], edu_grade_valid_assessment_type($m[2])];
+    }
+    return [(int)$raw, $type];
+}
+
+function edu_grade_module_has_coursework(array $module): bool
+{
+    return ((float)($module['coursework_hours'] ?? 0) > 0);
+}
+
+function edu_grade_module_assessment_label(array $module): string
+{
+    $type = edu_grade_valid_assessment_type((string)($module['_assessment_type'] ?? 'current'));
+    if ($type === 'coursework') {
+        return 'Курсовая работа — ' . edu_grade_module_label($module);
+    }
+    return edu_grade_module_label($module);
+}
+
+function edu_grade_assessment_belongs_to_semester(array $module, int $semester, string $assessmentType): bool
+{
+    if ($semester < 1) return false;
+    $assessmentType = edu_grade_valid_assessment_type($assessmentType);
+    if ($assessmentType === 'coursework' && !edu_grade_module_has_coursework($module)) {
+        return false;
+    }
+    return edu_grade_module_belongs_to_semester($module, $semester);
+}
+
 function edu_grade_is_ro_index(string $code): bool
 {
     return (bool)preg_match('/^РО\s*\d+(?:\s*\.\s*\d+)+\s*\.?$/u', trim($code));
@@ -191,6 +239,7 @@ function edu_grade_modules_for_group_semester(PDO $pdo, int $groupId, int $semes
             m.component_name,
             m.credits,
             m.total_hours,
+            m.coursework_hours,
             m.exam_semester,
             m.credit_semester,
             m.control_work,
@@ -210,7 +259,7 @@ function edu_grade_modules_for_group_semester(PDO $pdo, int $groupId, int $semes
           AND LOWER(TRIM(COALESCE(m.component_name, ''))) NOT LIKE 'итого%'
         GROUP BY
             m.id, m.curriculum_id, m.parent_id, m.index_code, m.module_type, m.name, m.component_name,
-            m.credits, m.total_hours, m.exam_semester, m.credit_semester, m.control_work,
+            m.credits, m.total_hours, m.coursework_hours, m.exam_semester, m.credit_semester, m.control_work,
             m.is_summary, m.sort_order
         ORDER BY m.sort_order, m.name
     ");
@@ -249,7 +298,19 @@ function edu_grade_modules_for_group_semester(PDO $pdo, int $groupId, int $semes
             }
         }
 
-        $rows[] = $row;
+        $normal = $row;
+        $normal['_assessment_type'] = edu_grade_module_type($row, $semester);
+        $normal['_selection_key'] = edu_grade_selection_key((int)$row['id'], (string)$normal['_assessment_type']);
+        $rows[] = $normal;
+
+        // Курсовая работа хранится отдельной записью оценок с типом coursework.
+        // Основание — наличие часов/значения в колонке РУПл «Курс.р.» у дисциплины.
+        if (edu_grade_module_has_coursework($row)) {
+            $coursework = $row;
+            $coursework['_assessment_type'] = 'coursework';
+            $coursework['_selection_key'] = edu_grade_selection_key((int)$row['id'], 'coursework');
+            $rows[] = $coursework;
+        }
     }
 
     return $rows;
@@ -272,6 +333,7 @@ function edu_grade_load_module_by_id(PDO $pdo, int $moduleId, int $semester = 0)
             m.component_name,
             m.credits,
             m.total_hours,
+            m.coursework_hours,
             m.exam_semester,
             m.credit_semester,
             m.control_work,
@@ -285,7 +347,7 @@ function edu_grade_load_module_by_id(PDO $pdo, int $moduleId, int $semester = 0)
         WHERE m.id = ?
         GROUP BY
             m.id, m.curriculum_id, m.parent_id, m.index_code, m.module_type, m.name, m.component_name,
-            m.credits, m.total_hours, m.exam_semester, m.credit_semester, m.control_work,
+            m.credits, m.total_hours, m.coursework_hours, m.exam_semester, m.credit_semester, m.control_work,
             m.is_summary, m.sort_order
         LIMIT 1
     ");
@@ -305,17 +367,24 @@ function edu_grade_load_module_by_id(PDO $pdo, int $moduleId, int $semester = 0)
 function edu_grade_module_option_payload(array $m): array
 {
     $sems = implode(',', $m['_semesters'] ?? edu_grade_module_semesters($m));
-    $label = edu_grade_module_label($m);
+    $assessmentType = edu_grade_valid_assessment_type((string)($m['_assessment_type'] ?? edu_grade_module_type($m, (int)(($m['_selected_semester'] ?? 0)))));
+    $label = edu_grade_module_assessment_label($m);
     $hours = (int)($m['total_hours'] ?? 0);
     $credits = (float)($m['credits'] ?? 0);
 
     $parts = [$label];
     $parts[] = $sems ? ('сем. ' . $sems) : 'семестр не определён';
-    if ($hours > 0) $parts[] = $hours . ' ч.';
-    if ($credits > 0) $parts[] = rtrim(rtrim(number_format($credits, 2, '.', ''), '0'), '.') . ' кр.';
+    if ($assessmentType === 'coursework' && (float)($m['coursework_hours'] ?? 0) > 0) {
+        $parts[] = edu_format_decimal($m['coursework_hours'], false) . ' ч. курс.р.';
+    } elseif ($hours > 0) {
+        $parts[] = $hours . ' ч.';
+    }
+    if ($credits > 0 && $assessmentType !== 'coursework') $parts[] = rtrim(rtrim(number_format($credits, 2, '.', ''), '0'), '.') . ' кр.';
 
     return [
         'id' => (int)$m['id'],
+        'value' => edu_grade_selection_key((int)$m['id'], $assessmentType),
+        'type' => $assessmentType,
         'curriculum_id' => (int)$m['curriculum_id'],
         'semesters' => $sems,
         'label' => implode(' · ', $parts),
@@ -329,7 +398,11 @@ function edu_grade_find_or_create_subject(PDO $pdo, array $module): ?int
 
     $sourceCode = trim((string)($module['index_code'] ?? ''));
     $name = edu_grade_module_display_name($module);
+    $assessmentType = edu_grade_valid_assessment_type((string)($module['_assessment_type'] ?? 'current'));
     if ($name === '') return null;
+    if ($assessmentType === 'coursework') {
+        $name = 'Курсовая работа: ' . $name;
+    }
 
     // У РО-строк код «РО 1.1.» повторяется в разных модулях и у разных дисциплин.
     // Для технической записи edu_subjects используем уникальный код модуля РУПл,
@@ -337,6 +410,9 @@ function edu_grade_find_or_create_subject(PDO $pdo, array $module): ?int
     $code = ($sourceCode !== '' && !edu_grade_is_ro_index($sourceCode))
         ? $sourceCode
         : ('RUPL-' . (int)$module['id']);
+    if ($assessmentType === 'coursework') {
+        $code = 'RUPL-' . (int)$module['id'] . '-CW';
+    }
 
     if (str_starts_with($code, 'RUPL-')) {
         $find = $pdo->prepare('SELECT id FROM edu_subjects WHERE code = ? ORDER BY id LIMIT 1');
@@ -469,23 +545,25 @@ function edu_grade_sync_sheet_students(PDO $pdo, int $sheetId, int $groupId, int
     }
 }
 
-function edu_grade_ensure_sheet(PDO $pdo, array $group, array $module, int $curriculumSemester, int $teacherId): int
+function edu_grade_ensure_sheet(PDO $pdo, array $group, array $module, int $curriculumSemester, int $teacherId, string $assessmentType = 'current'): int
 {
     // Дисциплина выбирается из РУПл: edu_curriculum_modules.id.
     // subject_id оставлен только как техническое зеркало для старых отчётов проекта.
+    $assessmentType = edu_grade_valid_assessment_type($assessmentType);
+    $module['_assessment_type'] = $assessmentType;
     $subjectId = edu_grade_find_or_create_subject($pdo, $module);
     $semesterId = edu_grade_find_or_create_semester($pdo, $group, $curriculumSemester);
-    $type = edu_grade_module_type($module, $curriculumSemester);
+    $type = $assessmentType === 'coursework' ? 'coursework' : edu_grade_module_type($module, $curriculumSemester);
     $moduleId = (int)$module['id'];
 
     $find = $pdo->prepare("
         SELECT id
         FROM edu_grade_sheets
-        WHERE group_id = ? AND curriculum_module_id = ? AND curriculum_semester = ?
+        WHERE group_id = ? AND curriculum_module_id = ? AND curriculum_semester = ? AND type = ?
         ORDER BY FIELD(status, 'draft', 'rejected', 'submitted', 'approved'), id DESC
         LIMIT 1
     ");
-    $find->execute([(int)$group['id'], $moduleId, $curriculumSemester]);
+    $find->execute([(int)$group['id'], $moduleId, $curriculumSemester, $type]);
     $sheetId = (int)($find->fetchColumn() ?: 0);
 
     if ($sheetId > 0) {
@@ -544,7 +622,7 @@ $curriculumIds = array_values(array_unique($curriculumIds));
 
 $currentGroupId = (int)($_POST['group_id'] ?? $_GET['group_id'] ?? 0);
 $currentSemester = (int)($_POST['curriculum_semester'] ?? $_GET['semester'] ?? 0);
-$currentModuleId = (int)($_POST['module_id'] ?? $_GET['module_id'] ?? 0);
+[$currentModuleId, $currentAssessmentType] = edu_grade_parse_module_selection($_POST['module_id'] ?? $_GET['module_id'] ?? '', $_POST['assessment_type'] ?? $_GET['assessment_type'] ?? 'current');
 $currentSheetId = (int)($_POST['sheet_id'] ?? $_GET['sheet_id'] ?? 0);
 $openedSheet = null;
 if ($currentSemester < 1 || $currentSemester > 8) $currentSemester = 0;
@@ -560,6 +638,7 @@ if ($currentSheetId > 0) {
         $currentGroupId = (int)$openedSheet['group_id'];
         $currentSemester = (int)($openedSheet['curriculum_semester'] ?: $currentSemester);
         $currentModuleId = (int)($openedSheet['curriculum_module_id'] ?: $currentModuleId);
+        $currentAssessmentType = edu_grade_valid_assessment_type((string)($openedSheet['type'] ?? $currentAssessmentType));
     } else {
         $openedSheet = null;
         $currentSheetId = 0;
@@ -571,18 +650,22 @@ $availableModules = ($activeGroup && $currentSemester >= 1)
     ? edu_grade_modules_for_group_semester($pdo, $currentGroupId, $currentSemester)
     : [];
 
-$modulesById = [];
+$modulesByKey = [];
 foreach ($availableModules as $m) {
-    $modulesById[(int)$m['id']] = $m;
+    $type = edu_grade_valid_assessment_type((string)($m['_assessment_type'] ?? 'current'));
+    $modulesByKey[edu_grade_selection_key((int)$m['id'], $type)] = $m;
 }
+$currentSelectionKey = edu_grade_selection_key($currentModuleId, $currentAssessmentType);
 
 // Если открывается уже существующая запись, её module_id может относиться к РУПл,
 // который был привязан раньше. Добавляем этот модуль в список вручную, чтобы
 // страница могла открыть и сохранить старую запись без пустого селекта.
-if ($currentModuleId > 0 && !isset($modulesById[$currentModuleId])) {
+if ($currentModuleId > 0 && !isset($modulesByKey[$currentSelectionKey])) {
     $openedModule = edu_grade_load_module_by_id($pdo, $currentModuleId, $currentSemester);
     if ($openedModule && edu_grade_is_assessable_module($openedModule)) {
-        $modulesById[$currentModuleId] = $openedModule;
+        $openedModule['_assessment_type'] = $currentAssessmentType;
+        $openedModule['_selection_key'] = $currentSelectionKey;
+        $modulesByKey[$currentSelectionKey] = $openedModule;
         $availableModules[] = $openedModule;
     }
 }
@@ -598,7 +681,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'modules') {
     exit;
 }
 
-$activeModule = $modulesById[$currentModuleId] ?? null;
+$activeModule = $modulesByKey[$currentSelectionKey] ?? null;
 $activeSheet = null;
 $students = [];
 $canSave = false;
@@ -615,7 +698,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
     } elseif (!$isExistingSheetOpen && (int)$activeGroup['curriculum_id'] !== (int)$activeModule['curriculum_id']) {
         $message = 'Выбранная дисциплина не относится к РУПл этой группы.';
         $messageType = 'error';
-    } elseif (!$isExistingSheetOpen && !edu_grade_module_belongs_to_semester($activeModule, $currentSemester)) {
+    } elseif (!$isExistingSheetOpen && !edu_grade_assessment_belongs_to_semester($activeModule, $currentSemester, $currentAssessmentType)) {
         $message = 'Выбранная дисциплина не относится к указанному семестру РУПл.';
         $messageType = 'error';
     } elseif ($isExistingSheetOpen && $isTeacher && !$isAdmin && (int)($openedSheet['teacher_id'] ?? 0) > 0 && (int)$openedSheet['teacher_id'] !== $userId) {
@@ -628,7 +711,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
                 $sheetId = $currentSheetId;
                 edu_grade_sync_sheet_students($pdo, $sheetId, (int)$activeGroup['id'], (int)$activeModule['id'], $currentSemester);
             } else {
-                $sheetId = edu_grade_ensure_sheet($pdo, $activeGroup, $activeModule, $currentSemester, $userId);
+                $sheetId = edu_grade_ensure_sheet($pdo, $activeGroup, $activeModule, $currentSemester, $userId, $currentAssessmentType);
             }
             $grades = $_POST['grade'] ?? [];
             $comments = $_POST['comment'] ?? [];
@@ -671,8 +754,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
                     ]));
                 }
             }
-            $pdo->prepare('UPDATE edu_grade_sheets SET updated_at = NOW(), curriculum_module_id = ?, curriculum_semester = ? WHERE id = ?')
-                ->execute([(int)$activeModule['id'], $currentSemester, $sheetId]);
+            $pdo->prepare('UPDATE edu_grade_sheets SET updated_at = NOW(), curriculum_module_id = ?, curriculum_semester = ?, type = ? WHERE id = ?')
+                ->execute([(int)$activeModule['id'], $currentSemester, $currentAssessmentType, $sheetId]);
             $pdo->commit();
             header('Location: grade_sheets.php?sheet_id=' . (int)$sheetId . '&saved=1');
             exit;
@@ -687,7 +770,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grades'])) {
 // ── Загрузка активной таблицы студентов ───────────────────────────────────
 $canOpenSheet = $activeGroup && $activeModule && $currentSemester >= 1 && (
     ($currentSheetId > 0 && $openedSheet)
-    || ((int)$activeGroup['curriculum_id'] === (int)$activeModule['curriculum_id'] && edu_grade_module_belongs_to_semester($activeModule, $currentSemester))
+    || ((int)$activeGroup['curriculum_id'] === (int)$activeModule['curriculum_id'] && edu_grade_assessment_belongs_to_semester($activeModule, $currentSemester, $currentAssessmentType))
 );
 if ($canOpenSheet) {
     try {
@@ -697,17 +780,17 @@ if ($canOpenSheet) {
                 edu_grade_sync_sheet_students($pdo, $sheetId, (int)$activeGroup['id'], (int)$activeModule['id'], $currentSemester);
             }
         } elseif ($canEditGrades) {
-            $sheetId = edu_grade_ensure_sheet($pdo, $activeGroup, $activeModule, $currentSemester, $userId);
+            $sheetId = edu_grade_ensure_sheet($pdo, $activeGroup, $activeModule, $currentSemester, $userId, $currentAssessmentType);
         } else {
             // Директор открывает оценки только для просмотра. Новые листы и строки edu_grades не создаются.
             $findSheet = $pdo->prepare("
                 SELECT id
                 FROM edu_grade_sheets
-                WHERE group_id = ? AND curriculum_module_id = ? AND curriculum_semester = ?
+                WHERE group_id = ? AND curriculum_module_id = ? AND curriculum_semester = ? AND type = ?
                 ORDER BY updated_at DESC, created_at DESC, id DESC
                 LIMIT 1
             ");
-            $findSheet->execute([(int)$activeGroup['id'], (int)$activeModule['id'], $currentSemester]);
+            $findSheet->execute([(int)$activeGroup['id'], (int)$activeModule['id'], $currentSemester, $currentAssessmentType]);
             $sheetId = (int)($findSheet->fetchColumn() ?: 0);
             if ($sheetId <= 0) {
                 $message = 'По выбранной группе, семестру и дисциплине ещё нет сохранённой записи оценок.';
@@ -898,13 +981,11 @@ $breadcrumbs = [
               <select name="module_id" id="gradeModule" required>
                 <option value="">— выберите дисциплину —</option>
                 <?php foreach ($availableModules as $m):
-                  $sems = implode(',', $m['_semesters']);
-                  $label = trim(($m['index_code'] ? $m['index_code'] . ' — ' : '') . $m['name']);
-                  $hours = (int)($m['total_hours'] ?? 0);
-                  $credits = (float)($m['credits'] ?? 0);
+                  $payload = edu_grade_module_option_payload($m);
+                  $value = (string)$payload['value'];
                 ?>
-                <option value="<?= (int)$m['id'] ?>" data-curriculum="<?= (int)$m['curriculum_id'] ?>" data-sems="<?= htmlspecialchars($sems) ?>" <?= $currentModuleId === (int)$m['id'] ? 'selected' : '' ?>>
-                  <?= htmlspecialchars(mb_strimwidth($label, 0, 110, '…')) ?><?= $sems ? ' · сем. ' . htmlspecialchars($sems) : ' · семестр не определён' ?><?= $hours ? ' · ' . $hours . ' ч.' : '' ?><?= $credits ? ' · ' . rtrim(rtrim(number_format($credits, 2, '.', ''), '0'), '.') . ' кр.' : '' ?>
+                <option value="<?= htmlspecialchars($value) ?>" data-type="<?= htmlspecialchars($payload['type']) ?>" data-curriculum="<?= (int)$payload['curriculum_id'] ?>" data-sems="<?= htmlspecialchars($payload['semesters']) ?>" <?= $currentSelectionKey === $value ? 'selected' : '' ?>>
+                  <?= htmlspecialchars(mb_strimwidth($payload['label'], 0, 130, '…')) ?>
                 </option>
                 <?php endforeach ?>
               </select>
@@ -927,7 +1008,7 @@ $breadcrumbs = [
       <div class="selection-summary">
         <div><span>Группа</span><strong><?= htmlspecialchars($activeGroup['name']) ?></strong></div>
         <div><span>Семестр РУПл</span><strong><?= $currentSemester ?> семестр</strong></div>
-        <div><span>Дисциплина РУПл</span><strong><?= htmlspecialchars(edu_grade_module_label($activeModule)) ?></strong></div>
+        <div><span>Дисциплина РУПл</span><strong><?= htmlspecialchars(edu_grade_module_assessment_label($activeModule)) ?></strong></div>
         <div><span>Тип</span><strong><?= htmlspecialchars($TYPE_LABELS[$activeSheet['type']] ?? $activeSheet['type']) ?></strong></div>
       </div>
       <?php if ($students): ?>
@@ -935,7 +1016,8 @@ $breadcrumbs = [
         <input type="hidden" name="save_grades" value="1">
         <input type="hidden" name="group_id" value="<?= (int)$currentGroupId ?>">
         <input type="hidden" name="curriculum_semester" value="<?= (int)$currentSemester ?>">
-        <input type="hidden" name="module_id" value="<?= (int)$currentModuleId ?>">
+        <input type="hidden" name="module_id" value="<?= htmlspecialchars($currentSelectionKey) ?>">
+        <input type="hidden" name="assessment_type" value="<?= htmlspecialchars($currentAssessmentType) ?>">
         <input type="hidden" name="sheet_id" value="<?= (int)($activeSheet['id'] ?? $currentSheetId) ?>">
         <div class="table-wrapper">
           <table class="grades-table">
@@ -1030,6 +1112,9 @@ $breadcrumbs = [
             $moduleCode = trim((string)($sh['module_code'] ?? ''));
             $moduleName = trim((string)($sh['module_name'] ?: $sh['subject_name']));
             $moduleTitle = trim(($moduleCode !== '' ? $moduleCode . ' — ' : '') . $moduleName);
+            if (($sh['type'] ?? '') === 'coursework') {
+                $moduleTitle = 'Курсовая работа — ' . $moduleTitle;
+            }
           ?>
             <tr>
               <td style="color:var(--color-text-muted)"><?= $i + 1 ?></td>
@@ -1103,8 +1188,9 @@ $breadcrumbs = [
       const items = Array.isArray(data.items) ? data.items : [];
       items.forEach(item => {
         const option = document.createElement('option');
-        option.value = String(item.id);
+        option.value = String(item.value || item.id);
         option.textContent = item.label;
+        option.dataset.type = item.type || '';
         option.dataset.curriculum = String(item.curriculum_id || '');
         option.dataset.sems = item.semesters || '';
         if (preferValue && String(item.id) === String(preferValue)) option.selected = true;

@@ -1197,7 +1197,11 @@ function edu_build_semester_sheet(Spreadsheet $spreadsheet, PDO $pdo, array $gro
         }
     }
 
-    $footer = 'Зам. директора по УР: ____________________        Зав. отделением: ____________________        Руководитель группы: ____________________';
+    $directorShortName = edu_fetch_director_name($pdo, true);
+    $departmentHeadShortName = edu_fetch_department_head_name_by_group($pdo, (int)($group['id'] ?? 0), true);
+    $footer = 'Директор: ' . ($directorShortName !== '' ? $directorShortName : '____________________')
+        . '        Зав. отделением: ' . ($departmentHeadShortName !== '' ? $departmentHeadShortName : '____________________')
+        . '        Руководитель группы: ____________________';
     edu_write_semester_rows($sheet, $allRows, $firstDataRow, $lastColIdx, $lastCol, $footer);
 
     if (!$includeScholarshipSheet) {
@@ -1432,7 +1436,11 @@ function edu_send_all_semesters_workbook(PDO $pdo, array $group): void
         $rows[] = $line;
     }
 
-    $footer = 'Зам. директора по УР: ____________________        Зав. отделением: ____________________        Руководитель группы: ____________________';
+    $directorShortName = edu_fetch_director_name($pdo, true);
+    $departmentHeadShortName = edu_fetch_department_head_name_by_group($pdo, (int)($group['id'] ?? 0), true);
+    $footer = 'Директор: ' . ($directorShortName !== '' ? $directorShortName : '____________________')
+        . '        Зав. отделением: ' . ($departmentHeadShortName !== '' ? $departmentHeadShortName : '____________________')
+        . '        Руководитель группы: ____________________';
     edu_write_semester_rows($sheet, $rows, $firstDataRow, $lastColIdx, $lastCol, $footer);
 
     $tmp = tempnam(sys_get_temp_dir(), 'rupl_vedomost_all_') . '.xlsx';
@@ -1464,12 +1472,14 @@ function edu_send_semester_workbook(PDO $pdo, array $group, array $semesters, bo
 }
 
 // ── Группы с привязанным РУПл ────────────────────────────────────────────────
+$accessibleGroupIdsForGenerate = edu_accessible_group_ids($pdo, $userId, $role);
 if ($isAdmin || $isDirector) {
-    $groups = $pdo->query("\n        SELECT g.id, g.name, g.course, g.curriculum_id,\n               c.name AS curriculum_name, c.specialty_code, c.specialty_name, c.qualification, c.enrollment_year\n        FROM edu_groups g\n        INNER JOIN edu_curricula c ON c.id = g.curriculum_id\n        ORDER BY g.name\n    ")->fetchAll(PDO::FETCH_ASSOC);
+    $groups = $pdo->query("\n        SELECT g.id, g.name, g.course, g.curriculum_id, g.department_id,\n               c.name AS curriculum_name, c.specialty_code, c.specialty_name, c.qualification, c.enrollment_year\n        FROM edu_groups g\n        INNER JOIN edu_curricula c ON c.id = g.curriculum_id\n        ORDER BY g.name\n    ")->fetchAll(PDO::FETCH_ASSOC);
+} elseif (!$accessibleGroupIdsForGenerate) {
+    $groups = [];
 } else {
-    $stmt = $pdo->prepare("\n        SELECT g.id, g.name, g.course, g.curriculum_id,\n               c.name AS curriculum_name, c.specialty_code, c.specialty_name, c.qualification, c.enrollment_year\n        FROM edu_groups g\n        INNER JOIN edu_curricula c ON c.id = g.curriculum_id\n        WHERE g.curator_id = ?\n        ORDER BY g.name\n    ");
-    $stmt->execute([$userId]);
-    $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $in = edu_in_int_list($accessibleGroupIdsForGenerate);
+    $groups = $pdo->query("\n        SELECT g.id, g.name, g.course, g.curriculum_id, g.department_id,\n               c.name AS curriculum_name, c.specialty_code, c.specialty_name, c.qualification, c.enrollment_year\n        FROM edu_groups g\n        INNER JOIN edu_curricula c ON c.id = g.curriculum_id\n        WHERE g.id IN ($in)\n        ORDER BY g.name\n    ")->fetchAll(PDO::FETCH_ASSOC);
 }
 $allowedGroupIds = array_map('intval', array_column($groups, 'id'));
 
@@ -1667,12 +1677,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate'])) {
                     $qualText = is_array($qualArr) ? implode('; ', $qualArr) : (string)$qualRaw;
                     $courseNum = (int)($group['course'] ?: max(1, (int)ceil($semNum / 2)));
 
+                    $departmentHeadShortName = edu_fetch_department_head_name_by_group($pdo, (int)($group['id'] ?? 0), true);
                     $jsonData = [
                         'discipline'    => trim(($module['index_code'] ? $module['index_code'] . ' ' : '') . $module['name']),
                         'group_name'    => $group['name'],
                         'specialty'     => trim(($group['spec_code'] ?? '') . ' ' . ($group['spec_name'] ?? '')),
                         'qualification' => $qualText,
                         'teacher'       => $teacher,
+                        'department_head' => $departmentHeadShortName,
                         'semester_num'  => $semNum,
                         'course_num'    => $courseNum,
                         'exam_type'     => $examType,

@@ -85,10 +85,69 @@ function edu_dashboard_url(?string $role = null): string
     };
 }
 
+function edu_table_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    static $cache = [];
+
+    $key = $table . '.' . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND COLUMN_NAME = ?
+        ");
+        $stmt->execute([$table, $column]);
+        return $cache[$key] = ((int)$stmt->fetchColumn() > 0);
+    } catch (Throwable $e) {
+        return $cache[$key] = false;
+    }
+}
+
+function edu_department_head_info(PDO $pdo, int $userId): array
+{
+    if ($userId <= 0) {
+        return ['is_head' => false, 'department_id' => null];
+    }
+
+    if (!edu_table_column_exists($pdo, 'users', 'is_department_head') ||
+        !edu_table_column_exists($pdo, 'users', 'head_department_id')) {
+        return ['is_head' => false, 'department_id' => null];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT is_department_head, head_department_id
+            FROM users
+            WHERE id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return ['is_head' => false, 'department_id' => null];
+        }
+
+        $departmentId = (int)($row['head_department_id'] ?? 0);
+        return [
+            'is_head' => ((int)($row['is_department_head'] ?? 0) === 1 && $departmentId > 0),
+            'department_id' => $departmentId > 0 ? $departmentId : null,
+        ];
+    } catch (Throwable $e) {
+        return ['is_head' => false, 'department_id' => null];
+    }
+}
+
 /**
  * Группы, доступные пользователю в учебном модуле.
  * admin/director видят все группы.
- * teacher видит группы, где он куратор, а также группы ведомостей, где он указан преподавателем.
+ * teacher с отметкой заведующего отделением видит группы своего отделения.
+ * teacher без отметки заведующего видит только группы, где он указан куратором.
  */
 function edu_accessible_group_ids(PDO $pdo, ?int $userId = null, ?string $role = null): array
 {
@@ -96,25 +155,32 @@ function edu_accessible_group_ids(PDO $pdo, ?int $userId = null, ?string $role =
     $role = edu_normalize_role($role ?? edu_current_role());
 
     if (in_array($role, ['admin', 'director'], true)) {
-        return array_map('intval', $pdo->query("SELECT id FROM edu_groups")->fetchAll(PDO::FETCH_COLUMN));
+        return array_map('intval', $pdo->query("SELECT id FROM edu_groups ORDER BY name")->fetchAll(PDO::FETCH_COLUMN));
     }
 
     if ($role !== 'teacher' || $userId <= 0) {
         return [];
     }
 
+    $headInfo = edu_department_head_info($pdo, (int)$userId);
+    if (!empty($headInfo['is_head']) && !empty($headInfo['department_id'])) {
+        $stmt = $pdo->prepare("
+            SELECT id
+            FROM edu_groups
+            WHERE department_id = ?
+            ORDER BY name
+        ");
+        $stmt->execute([(int)$headInfo['department_id']]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     $stmt = $pdo->prepare("
-        SELECT g.id
-        FROM edu_groups g
-        LEFT JOIN edu_grade_sheets gs ON gs.group_id = g.id
-        WHERE g.curator_id = :uid_curator OR gs.teacher_id = :uid_teacher
-        GROUP BY g.id, g.name
-        ORDER BY g.name
+        SELECT id
+        FROM edu_groups
+        WHERE curator_id = ?
+        ORDER BY name
     ");
-    $stmt->execute([
-        ':uid_curator' => $userId,
-        ':uid_teacher' => $userId,
-    ]);
+    $stmt->execute([$userId]);
     return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 }
 
