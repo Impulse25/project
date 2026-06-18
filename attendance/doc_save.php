@@ -16,8 +16,10 @@ set_error_handler(function($no, $str, $file, $line) {
 require_once __DIR__ . '/auth_check.php';
 
 // [ИСПРАВЛЕНИЕ #6] Централизованное подключение к БД
-require_once __DIR__ . '/db.php';
-$pdo = getDbConnection();
+require_once __DIR__ . '/../config/db.php';
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    throw new RuntimeException('Не удалось подключиться к базе данных');
+}
 
 $teacher_id = (int)$_SESSION['user_id'];
 $userRole   = $_SESSION['role'] ?? 'teacher';

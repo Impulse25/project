@@ -19,7 +19,74 @@ if (!isset($_SESSION['user_id'])) {
 
 // Подключение к БД через общий config/db.php проекта
 require_once __DIR__ . '/../config/db.php';
-$pdo = $pdo ?? getDbConnection();
+if (!isset($pdo) || !($pdo instanceof PDO)) {
+    die('Не удалось подключиться к базе данных');
+}
+
+
+// ── Проверка доступа к группе ───────────────────────────────────────────
+function att_export_column_exists(PDO $pdo, string $table, string $column): bool {
+    // SHOW COLUMNS с bind-параметром на некоторых хостингах возвращает пусто,
+    // поэтому проверяем через DESCRIBE и сравниваем имена полей вручную.
+    try {
+        $safeTable = str_replace('`', '``', $table);
+        $stmt = $pdo->query("DESCRIBE `$safeTable`");
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($row['Field']) && $row['Field'] === $column) return true;
+        }
+    } catch (Throwable $e) {}
+    return false;
+}
+
+function att_role_permission_enabled_export(PDO $pdo, string $roleCode, string $permission): bool {
+    if ($roleCode === 'admin') return true;
+    try {
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM roles LIKE :col");
+        $stmt->execute([':col' => $permission]);
+        if (!$stmt->fetch()) return false;
+        $stmt = $pdo->prepare("SELECT `$permission` FROM roles WHERE role_code = :role LIMIT 1");
+        $stmt->execute([':role' => $roleCode]);
+        return ((int)$stmt->fetchColumn() === 1);
+    } catch (Throwable $e) { return false; }
+}
+
+$userId = (int)$_SESSION['user_id'];
+$userRole = (string)($_SESSION['role'] ?? 'teacher');
+$userPosition = (string)($_SESSION['position'] ?? '');
+try {
+    $stmtUser = $pdo->prepare("SELECT * FROM users WHERE id = :uid LIMIT 1");
+    $stmtUser->execute([':uid' => $userId]);
+    $dbUser = $stmtUser->fetch(PDO::FETCH_ASSOC) ?: [];
+    if (!empty($dbUser['position'])) $userPosition = (string)$dbUser['position'];
+} catch (Throwable $e) { $dbUser = []; }
+
+$isAdmin = in_array($userRole, ['admin', 'director'], true);
+$hasDeptAttendancePermission = att_role_permission_enabled_export($pdo, $userRole, 'can_attendance_view_department');
+$isDeptHead = $hasDeptAttendancePermission
+          || (!empty($dbUser['is_department_head']) && (int)$dbUser['is_department_head'] === 1)
+          || in_array($userRole, ['department_head','head_department','zav','zav_otdeleniya','dean','manager'], true)
+          || (mb_stripos($userPosition, 'зав') !== false && mb_stripos($userPosition, 'отдел') !== false);
+
+$userDepartmentId = isset($_SESSION['head_department_id']) ? (int)$_SESSION['head_department_id'] : 0;
+if (!$userDepartmentId && isset($_SESSION['department_id'])) $userDepartmentId = (int)$_SESSION['department_id'];
+if (!$userDepartmentId && !empty($dbUser['head_department_id'])) {
+    $userDepartmentId = (int)$dbUser['head_department_id'];
+}
+if (!$userDepartmentId && !empty($dbUser['department_id'])) {
+    $userDepartmentId = (int)$dbUser['department_id'];
+}
+
+$groupDeptColumn = att_export_column_exists($pdo, 'edu_groups', 'department_id')
+    ? 'department_id'
+    : (att_export_column_exists($pdo, 'edu_groups', 'departments_id') ? 'departments_id' : '');
+$groupHasDepartment = ($groupDeptColumn !== '');
+if (!$userDepartmentId && $isDeptHead && $groupHasDepartment) {
+    try {
+        $stmtDep = $pdo->prepare("SELECT `$groupDeptColumn` FROM edu_groups WHERE curator_id = :uid AND `$groupDeptColumn` IS NOT NULL LIMIT 1");
+        $stmtDep->execute([':uid' => $userId]);
+        $userDepartmentId = (int)($stmtDep->fetchColumn() ?: 0);
+    } catch (Throwable $e) { /* не удалось определить отделение */ }
+}
 
 // ── Параметры ────────────────────────────────────────────────────────────
 $group_id     = (int)($_GET['group_id']    ?? 0);
@@ -28,13 +95,16 @@ $date_to      = $_GET['date_to']           ?? date('Y-m-t');
 $course       = trim($_GET['course']       ?? '');
 $period_label = trim($_GET['period_label'] ?? date('m.Y'));
 $semester     = trim($_GET['semester']     ?? '');
+$student_id   = (int)($_GET['student_id'] ?? 0);
 
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) $date_from = date('Y-m-01');
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to))   $date_to   = date('Y-m-t');
 
 // ── Группа ───────────────────────────────────────────────────────────────
+$depSelect = $groupHasDepartment ? 'g.`' . $groupDeptColumn . '` AS department_id,' : 'NULL AS department_id,';
 $grpStmt = $pdo->prepare("
-    SELECT g.name AS group_name, g.course,
+    SELECT g.name AS group_name, g.course, g.curator_id,
+           $depSelect
            COALESCE(sp.name_ru,'') AS specialty,
            COALESCE(u.full_name,'') AS curator_name
     FROM edu_groups g
@@ -46,11 +116,19 @@ $grpStmt->execute([':gid' => $group_id]);
 $groupInfo = $grpStmt->fetch();
 if (!$groupInfo) die('Группа не найдена');
 
+$canAccessGroup = $isAdmin
+    || ((int)($groupInfo['curator_id'] ?? 0) === $userId)
+    || ($isDeptHead && $groupHasDepartment && $userDepartmentId > 0 && (int)($groupInfo['department_id'] ?? 0) === $userDepartmentId);
+if (!$canAccessGroup) {
+    http_response_code(403);
+    die('Нет доступа к этой группе');
+}
+
 $groupName = $groupInfo['group_name'];
 $courseNum = $course ?: $groupInfo['course'];
 
 // ── Студенты с суммой пропусков ───────────────────────────────────────────
-$stmtSt = $pdo->prepare("
+$studentsSql = "
     SELECT s.id,
            CONCAT(s.surname, ' ', s.name, ' ', s.patronymic) AS full_name,
            COALESCE(SUM(CASE WHEN a.status IN ('absent','excused') THEN a.hours_missed ELSE 0 END), 0) AS total_hours,
@@ -60,10 +138,16 @@ $stmtSt = $pdo->prepare("
     LEFT JOIN att_attendance a
            ON a.student_id = s.id AND a.date BETWEEN :df AND :dt
     WHERE s.group_id = :gid
-    GROUP BY s.id, s.surname, s.name, s.patronymic
-    ORDER BY s.surname, s.name, s.patronymic
-");
-$stmtSt->execute([':df' => $date_from, ':dt' => $date_to, ':gid' => $group_id]);
+";
+$studentsParams = [':df' => $date_from, ':dt' => $date_to, ':gid' => $group_id];
+if ($student_id > 0) {
+    $studentsSql .= " AND s.id = :student_id";
+    $studentsParams[':student_id'] = $student_id;
+}
+$studentsSql .= " GROUP BY s.id, s.surname, s.name, s.patronymic
+    ORDER BY s.surname, s.name, s.patronymic";
+$stmtSt = $pdo->prepare($studentsSql);
+$stmtSt->execute($studentsParams);
 $students = $stmtSt->fetchAll();
 
 $padTo      = max(count($students) + 3, 20);

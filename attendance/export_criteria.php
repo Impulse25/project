@@ -31,17 +31,56 @@ $dateTo    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date_to']   ?? '') ? $_G
 $threshold = max(1, min(100, (int)($_GET['threshold'] ?? 75)));
 $userId    = (int)$_SESSION['user_id'];
 $userRole  = $_SESSION['role'] ?? 'teacher';
-$isAdmin   = in_array($userRole, ['admin', 'director', 'curator']);
+$isAdmin   = in_array($userRole, ['admin', 'director', 'curator'], true);
+
+function att_criteria_column_exists(PDO $pdo, string $table, string $column): bool {
+    // SHOW COLUMNS с bind-параметром на некоторых хостингах возвращает пусто,
+    // поэтому проверяем через DESCRIBE и сравниваем имена полей вручную.
+    try {
+        $safeTable = str_replace('`', '``', $table);
+        $stmt = $pdo->query("DESCRIBE `$safeTable`");
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($row['Field']) && $row['Field'] === $column) return true;
+        }
+    } catch (Throwable $e) {}
+    return false;
+}
+
+try {
+    $stmtUser = $pdo->prepare("SELECT * FROM users WHERE id = :uid LIMIT 1");
+    $stmtUser->execute([':uid' => $userId]);
+    $dbUser = $stmtUser->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $e) { $dbUser = []; }
+
+$isDeptHead = (!empty($dbUser['is_department_head']) && (int)$dbUser['is_department_head'] === 1)
+          || in_array($userRole, ['department_head','head_department','zav','zav_otdeleniya','dean','manager'], true);
+$userDepartmentId = isset($_SESSION['head_department_id']) ? (int)$_SESSION['head_department_id'] : 0;
+if (!$userDepartmentId && isset($_SESSION['department_id'])) $userDepartmentId = (int)$_SESSION['department_id'];
+if (!$userDepartmentId && !empty($dbUser['head_department_id'])) $userDepartmentId = (int)$dbUser['head_department_id'];
+if (!$userDepartmentId && !empty($dbUser['department_id'])) $userDepartmentId = (int)$dbUser['department_id'];
+
+$groupDeptColumn = att_criteria_column_exists($pdo, 'edu_groups', 'department_id')
+    ? 'department_id'
+    : (att_criteria_column_exists($pdo, 'edu_groups', 'departments_id') ? 'departments_id' : '');
+$groupHasDepartment = ($groupDeptColumn !== '');
 
 // ── Доступные группы ──────────────────────────────────────────────────────
 if ($isAdmin) {
     $grpStmt = $pdo->query("SELECT g.id, g.name FROM edu_groups g ORDER BY g.name");
+} elseif ($isDeptHead && $groupHasDepartment && $userDepartmentId > 0) {
+    $grpStmt = $pdo->prepare("SELECT g.id, g.name FROM edu_groups g WHERE g.`$groupDeptColumn` = ? ORDER BY g.name");
+    $grpStmt->execute([$userDepartmentId]);
 } else {
     $grpStmt = $pdo->prepare("SELECT g.id, g.name FROM edu_groups g WHERE g.curator_id = ? ORDER BY g.name");
     $grpStmt->execute([$userId]);
 }
 $allGroups = $grpStmt->fetchAll();
-$groupIds  = $groupId > 0 ? [$groupId] : array_column($allGroups, 'id');
+$allowedGroupIds = array_map('intval', array_column($allGroups, 'id'));
+if ($groupId > 0 && !in_array($groupId, $allowedGroupIds, true)) {
+    http_response_code(403);
+    die('Нет доступа к этой группе');
+}
+$groupIds  = $groupId > 0 ? [$groupId] : $allowedGroupIds;
 if (empty($groupIds)) $groupIds = [0];
 $inPlaces  = implode(',', array_map('intval', $groupIds));
 

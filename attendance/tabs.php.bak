@@ -8,21 +8,6 @@
 <?php if ($noGroupsWarning): ?>
 <!-- Нет привязанных групп -->
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:var(--space-4);text-align:center">
-  <?php if ($isDeptHead): ?>
-  <form method="get" class="mode-warning-switch" style="margin-bottom:var(--space-2)">
-    <input type="hidden" name="tab" value="<?= htmlspecialchars($activeTab) ?>">
-    <input type="hidden" name="mode" id="attendanceModeInputEmpty" value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
-    <div class="mode-switch-wrap">
-      <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'teacher' ? 'active' : '' ?>">Преподаватель</span>
-      <label class="mode-switch" title="Переключить режим преподавателя / зав. отделения">
-        <input type="checkbox" <?= ($attendanceMode ?? 'teacher') === 'department' ? 'checked' : '' ?>
-               onchange="document.getElementById('attendanceModeInputEmpty').value=this.checked?'department':'teacher'; this.form.submit();">
-        <span class="mode-slider"></span>
-      </label>
-      <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'department' ? 'active' : '' ?>">Зав. отделения</span>
-    </div>
-  </form>
-  <?php endif ?>
   <div style="width:72px;height:72px;border-radius:var(--radius-xl);background:var(--color-warning-highlight);display:flex;align-items:center;justify-content:center;color:var(--color-warning)">
     <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
   </div>
@@ -37,11 +22,10 @@
 </div>
 <?php else: ?>
 
-<!-- Заголовок модуля -->
-<div class="page-header attendance-module-header">
+<!-- Заголовок страницы -->
+<div class="page-header">
   <div>
-    <h1 class="page-title">Учёт посещаемости</h1>
-    <p class="page-subtitle attendance-current-info">
+    <p class="page-subtitle">
       Группа <strong><?= htmlspecialchars($groupInfo['name']) ?></strong>
       · <?= htmlspecialchars($groupInfo['specialty'] ?? '') ?>
       · <?= date('d.m.Y', strtotime($selectedDate)) ?>
@@ -59,13 +43,14 @@
 <div class="filters-bar">
   <form method="get" style="display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-end;width:100%">
     <input type="hidden" name="tab" value="<?= htmlspecialchars($activeTab) ?>">
-    <input type="hidden" name="mode" id="attendanceModeInput" value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
-
-
     <div class="form-group">
       <label class="form-label">
         Группа
-        <span style="font-size:10px;color:var(--color-text-faint);font-weight:400">(<?= htmlspecialchars($groupsLabel ?? 'ваши группы') ?>)</span>
+        <?php if ($isTeacher): ?>
+        <span style="font-size:10px;color:var(--color-text-faint);font-weight:400">(ваши группы)</span>
+        <?php elseif ($isDeptHead): ?>
+        <span style="font-size:10px;color:var(--color-text-faint);font-weight:400">(ваше отделение)</span>
+        <?php endif ?>
       </label>
       <select name="group" class="form-control" onchange="this.form.submit()">
         <?php foreach ($groups as $gid => $g): ?>
@@ -99,21 +84,6 @@
         <option>2024–2025</option>
       </select>
     </div>
-
-    <?php if ($isDeptHead): ?>
-    <div class="form-group mode-toggle-group mode-toggle-after-year">
-      <label class="form-label">Режим просмотра</label>
-      <div class="mode-switch-wrap">
-        <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'teacher' ? 'active' : '' ?>">Преподаватель</span>
-        <label class="mode-switch" title="Переключить режим преподавателя / зав. отделения">
-          <input type="checkbox" <?= ($attendanceMode ?? 'teacher') === 'department' ? 'checked' : '' ?>
-                 onchange="document.getElementById('attendanceModeInput').value=this.checked?'department':'teacher'; this.form.submit();">
-          <span class="mode-slider"></span>
-        </label>
-        <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'department' ? 'active' : '' ?>">Зав. отделения</span>
-      </div>
-    </div>
-    <?php endif ?>
   </form>
 </div>
 
@@ -333,7 +303,6 @@
       <!-- Фильтры рапортички -->
       <form method="get" class="rap-filters">
           <input type="hidden" name="tab"   value="report">
-          <input type="hidden" name="mode"  value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
           <input type="hidden" name="group" value="<?= $selectedGrp ?>">
           <input type="hidden" name="date"  value="<?= htmlspecialchars($selectedDate) ?>">
           <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
@@ -373,7 +342,7 @@
               CSV
             </button>
             <a class="btn btn-primary btn-sm"
-               href="export_vedomost.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $selectedGrp ?>&date_from=<?= urlencode($rapDateFrom) ?>&date_to=<?= urlencode($rapDateTo) ?>&course=<?= urlencode((string)($groupInfo['course'] ?? '')) ?>&period_label=<?= urlencode(date('m.Y', strtotime($rapDateFrom))) ?>&semester=<?= urlencode($reportPeriod === 'semester' ? '?' : '') ?>&student_id=<?= (int)$selectedStudent ?>"
+               href="export_vedomost.php?group_id=<?= $selectedGrp ?>&date_from=<?= urlencode($rapDateFrom) ?>&date_to=<?= urlencode($rapDateTo) ?>&course=<?= urlencode((string)($groupInfo['course'] ?? '')) ?>&period_label=<?= urlencode(date('m.Y', strtotime($rapDateFrom))) ?>&semester=<?= urlencode($reportPeriod === 'semester' ? '?' : '') ?>&student_id=<?= (int)$selectedStudent ?>"
                download>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               Сводная ведомость (.docx)
@@ -836,7 +805,6 @@
       <!-- Фильтры периода -->
       <form method="get" class="an-filters">
         <input type="hidden" name="tab"   value="analytics">
-        <input type="hidden" name="mode"  value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
         <input type="hidden" name="group" value="<?= $selectedGrp ?>">
         <input type="hidden" name="date"  value="<?= htmlspecialchars($selectedDate) ?>">
         <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
@@ -1107,7 +1075,6 @@
       <!-- Фильтры -->
       <form method="get" class="rap-filters" id="criteriaForm">
         <input type="hidden" name="tab"   value="criteria">
-        <input type="hidden" name="mode"  value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
         <input type="hidden" name="group" value="<?= $selectedGrp ?>">
 
         <div class="form-group">
@@ -1144,7 +1111,7 @@
             Применить
           </button>
           <a class="btn btn-primary btn-sm" id="excelDownloadBtn"
-             href="export_criteria.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $crGroupId ?>&date_from=<?= urlencode($crDateFrom) ?>&date_to=<?= urlencode($crDateTo) ?>&threshold=<?= $crThreshold ?>"
+             href="export_criteria.php?group_id=<?= $crGroupId ?>&date_from=<?= urlencode($crDateFrom) ?>&date_to=<?= urlencode($crDateTo) ?>&threshold=<?= $crThreshold ?>"
              download>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             Выгрузить Excel

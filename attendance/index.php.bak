@@ -81,16 +81,13 @@ require_once __DIR__ . '/../config/db.php';
 
 // ── Права доступа к группам ────────────────────────────────────────────────
 function att_column_exists(PDO $pdo, string $table, string $column): bool {
-    // SHOW COLUMNS с bind-параметром на некоторых хостингах возвращает пусто,
-    // поэтому проверяем через DESCRIBE и сравниваем имена полей вручную.
     try {
-        $safeTable = str_replace('`', '``', $table);
-        $stmt = $pdo->query("DESCRIBE `$safeTable`");
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            if (isset($row['Field']) && $row['Field'] === $column) return true;
-        }
-    } catch (Throwable $e) {}
-    return false;
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE :col");
+        $stmt->execute([':col' => $column]);
+        return (bool)$stmt->fetch();
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 // Берём должность и признаки зав. отделения из БД/сессии, если они есть.
@@ -153,15 +150,6 @@ $groupDeptColumn = att_column_exists($pdo, 'edu_groups', 'department_id')
     : (att_column_exists($pdo, 'edu_groups', 'departments_id') ? 'departments_id' : '');
 $groupHasDepartment = ($groupDeptColumn !== '');
 
-// Режим работы зав. отделения: можно переключаться между своими кураторскими группами
-// и всеми группами отделения. Переключатель передаёт mode=teacher / mode=department.
-$requestedMode = $_GET['mode'] ?? ($_SESSION['attendance_mode'] ?? 'department');
-$attendanceMode = in_array($requestedMode, ['teacher', 'department'], true) ? $requestedMode : 'department';
-if (!$isDeptHead) {
-    $attendanceMode = 'teacher';
-}
-$_SESSION['attendance_mode'] = $attendanceMode;
-
 // Если в users нет department_id, но преподаватель назначен куратором группы,
 // определяем его отделение по этой группе. Это удобно для роли "Зав. отделения".
 if (!$userDepartmentId && $isDeptHead && $groupHasDepartment) {
@@ -191,12 +179,11 @@ $groupParams = [];
 
 if ($isAdmin) {
     $groupSql .= " ORDER BY g.name";
-} elseif ($isDeptHead && $attendanceMode === 'department' && $groupHasDepartment && $userDepartmentId > 0) {
-    // Режим «Зав. отделения»: все группы отделения пользователя.
+} elseif ($isDeptHead && $groupHasDepartment && $userDepartmentId > 0) {
     $groupSql .= " WHERE g.`$groupDeptColumn` = :department_id ORDER BY g.name";
     $groupParams[':department_id'] = $userDepartmentId;
 } else {
-    // Режим «Преподаватель»: только группы, где пользователь назначен куратором.
+    // teacher: только группы где curator_id = его user_id
     $groupSql .= " WHERE g.curator_id = :uid ORDER BY g.name";
     $groupParams[':uid'] = $user['id'];
 }
@@ -204,38 +191,9 @@ if ($isAdmin) {
 $stmtGrp = $pdo->prepare($groupSql);
 $stmtGrp->execute($groupParams);
 $groups = [];
-foreach ($stmtGrp->fetchAll(PDO::FETCH_ASSOC) as $g) $groups[(int)$g['id']] = $g;
-
-// Дополнительная защита: если режим зав. отделения включён, но список почему-то
-// получился как у преподавателя, повторно берём группы напрямую по head_department_id.
-// Это исправляет ситуацию, когда на хостинге не определилось поле department_id.
-if (!$isAdmin && $isDeptHead && $attendanceMode === 'department' && $userDepartmentId > 0 && count($groups) <= 1) {
-    try {
-        $stmtFix = $pdo->prepare("
-            SELECT g.id, g.name, g.curator_id, g.course,
-                   g.department_id AS department_id, COALESCE(d.department_name, '') AS department_name,
-                   COALESCE(sp.name_ru, '') AS specialty, COALESCE(u.full_name, '') AS curator_name
-            FROM edu_groups g
-            LEFT JOIN departments d ON d.id = g.department_id
-            LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id
-            LEFT JOIN users u ON u.id = g.curator_id
-            WHERE g.department_id = :department_id
-            ORDER BY g.name
-        ");
-        $stmtFix->execute([':department_id' => $userDepartmentId]);
-        $fixedGroups = [];
-        foreach ($stmtFix->fetchAll(PDO::FETCH_ASSOC) as $g) $fixedGroups[(int)$g['id']] = $g;
-        if (count($fixedGroups) > count($groups)) {
-            $groups = $fixedGroups;
-            $groupHasDepartment = true;
-            $groupDeptColumn = 'department_id';
-        }
-    } catch (Throwable $e) { /* оставляем основной список */ }
-}
+foreach ($stmtGrp->fetchAll() as $g) $groups[$g['id']] = $g;
 
 $noGroupsWarning = (!$isAdmin && empty($groups));
-$modeLabel = ($isDeptHead && $attendanceMode === 'department') ? 'Зав. отделения' : 'Преподаватель';
-$groupsLabel = ($isDeptHead && $attendanceMode === 'department') ? 'ваше отделение' : 'ваши группы';
 
 // Выбранная группа: если teacher и запрошенная группа не его — берём первую свою
 $selectedGrp = (int)($_GET['group'] ?? 0);

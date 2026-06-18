@@ -49,7 +49,6 @@ function switchTab(name) {
   // Сохраняем текущие параметры если их нет
   if (!url.searchParams.get('group')) url.searchParams.set('group', '<?= (int)$selectedGrp ?>');
   if (!url.searchParams.get('date'))  url.searchParams.set('date',  '<?= htmlspecialchars($selectedDate) ?>');
-  if (!url.searchParams.get('mode'))  url.searchParams.set('mode',  '<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>');
   if (name === 'report' && !url.searchParams.get('month')) {
     url.searchParams.set('month', '<?= htmlspecialchars($reportMonth) ?>');
   }
