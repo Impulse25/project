@@ -116,7 +116,13 @@ function an_date_range(string $period, string $from, string $to): array {
 }
 
 function an_course_from_group(string $name): string {
-    if (preg_match('/-(\d{2})\b/u', $name, $m)) {
+    /*
+     * В названиях групп портала часто есть два числа: например «БДТ-11-23».
+     * Первое число — не год поступления, поэтому нельзя брать первое совпадение «-11».
+     * Берём именно последние две цифры в конце названия группы: «...-23», «...-24», «...-25».
+     */
+    $name = trim($name);
+    if (preg_match('/-(\d{2})\s*$/u', $name, $m)) {
         $startYear = 2000 + (int)$m[1];
         $course = (int)date('Y') - $startYear;
         if ((int)date('n') >= 9) $course++;
@@ -128,7 +134,8 @@ function an_course_from_group(string $name): string {
 }
 
 function an_group_is_graduate(string $name): bool {
-    return an_course_from_group($name) === 'Выпускники' || preg_match('/выпуск/ui', $name);
+    $name = trim($name);
+    return an_course_from_group($name) === 'Выпускники' || (bool)preg_match('/выпуск/ui', $name);
 }
 
 function an_grade_category($grade): string {
