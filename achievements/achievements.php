@@ -175,8 +175,6 @@ $totalCert = count($studentCerts) + count($teacherCerts);
   <div style="display:flex;gap:.75rem;flex-wrap:wrap">
     <?php if (in_array($role, ['admin','teacher','director'])): ?>
     <a href="<?= SITE_URL ?>/cert_review.php" class="btn btn-secondary"> Загрузить PDF</a>
-    <button class="btn btn-secondary" onclick="openModal('modal-cert-add')">+ Сертификат</button>
-    <button class="btn btn-primary"   onclick="openModal('modal-ach-add')">+ Достижение</button>
     <?php endif; ?>
   </div>
 </div>
