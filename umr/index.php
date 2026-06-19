@@ -8,6 +8,8 @@ $nameParts  = explode(' ', trim($userName));
 $initials   = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
 ?>
 
+
+
 <!DOCTYPE html>
 <html lang="ru" data-theme="light">
 <head>
