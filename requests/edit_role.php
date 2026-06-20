@@ -38,6 +38,14 @@ $eduPerms = [
     'can_edu_diploma_book'    => ['Формирование дипломной книги',                '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/>'],
 ];
 
+$umrPerms = [
+    'can_umr_teacher_assignments' => ['Тарификация',      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'],
+    'can_umr_curricula'           => ['Просмотр планов',  '<path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><polyline points="9 11 12 14 17 9"/><line x1="8" y1="7" x2="16" y2="7"/>'],
+    'can_umr_work_programs'       => ['Просмотр РУП',     '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'],
+    'can_umr_register_journal'    => ['Просмотр журнала', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'],
+    'can_umr_load_summary'        => ['Просмотр нагрузки','<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'],
+];
+
 $allEditablePerms = array_merge(array_keys($requestPerms), array_keys($eduPerms));
 
 $success = '';
@@ -837,7 +845,7 @@ require_once __DIR__ . '/includes/sidebar.php';
             </div>
             <div class="form-group">
               <label class="form-label">Права доступа</label>
-              <?php foreach (['Заявки в ИТ' => $requestPerms, 'Учебный модуль (edu)' => $eduPerms] as $groupTitle => $permGroup): ?>
+              <?php foreach (['Заявки в ИТ' => $requestPerms, 'Учебный модуль (edu)' => $eduPerms, 'УМР (umr)' => $umrPerms] as $groupTitle => $permGroup): ?>
               <div style="font-size:.8125rem;font-weight:700;color:var(--color-text-muted);margin:.75rem 0 .5rem;text-transform:uppercase;letter-spacing:.05em">
                 <?= htmlspecialchars($groupTitle) ?>
               </div>
