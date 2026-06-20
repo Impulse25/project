@@ -34,6 +34,12 @@ function request_ensure_department_head_columns(PDO $pdo): void
         if (!request_table_column_exists($pdo, 'users', 'head_department_id')) {
             $pdo->exec("ALTER TABLE users ADD COLUMN head_department_id INT NULL");
         }
+        if (!request_table_column_exists($pdo, 'users', 'is_pcc_head')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN is_pcc_head TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!request_table_column_exists($pdo, 'users', 'is_methodist')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN is_methodist TINYINT(1) NOT NULL DEFAULT 0");
+        }
     } catch (Throwable $e) {
         // Если у пользователя БД нет прав на ALTER, страницу не ломаем.
         // Для ручного применения есть edu/migrations/017_teacher_department_heads.sql.
@@ -74,6 +80,9 @@ $roles = $stmt->fetchAll();
 $departmentHeadColumnsAvailable = request_table_column_exists($pdo, 'users', 'is_department_head')
     && request_table_column_exists($pdo, 'users', 'head_department_id');
 
+$pccMethodistColumnsAvailable = request_table_column_exists($pdo, 'users', 'is_pcc_head')
+    && request_table_column_exists($pdo, 'users', 'is_methodist');
+
 $departments = [];
 try {
     $departments = $pdo->query("
@@ -100,6 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $position = $_POST['position'];
     $newPassword = $_POST['new_password'] ?? '';
     $isDepartmentHead = ($departmentHeadColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_department_head'])) ? 1 : 0;
+    
+    $isPccHead = ($pccMethodistColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_pcc_head'])) ? 1 : 0;
+    $isMethodist = ($pccMethodistColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_methodist'])) ? 1 : 0;
+    
     $headDepartmentId = null;
     if ($isDepartmentHead) {
         $headDepartmentId = ($_POST['head_department_id'] ?? '') !== '' ? (int)$_POST['head_department_id'] : null;
@@ -126,6 +139,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $setSql .= ", is_department_head = ?, head_department_id = ?";
             $updateParams[] = $isDepartmentHead;
             $updateParams[] = $isDepartmentHead ? $headDepartmentId : null;
+        }
+        
+        if ($pccMethodistColumnsAvailable) {
+            $setSql .= ", is_pcc_head = ?, is_methodist = ?";
+            $updateParams[] = $isPccHead;
+            $updateParams[] = $isMethodist;
         }
 
         if ($newPassword) {
@@ -169,6 +188,9 @@ if (!$currentRoleName) {
 $isDepartmentHeadChecked = $departmentHeadColumnsAvailable && ((int)($editUser['is_department_head'] ?? 0) === 1);
 $selectedHeadDepartmentId = $departmentHeadColumnsAvailable ? (int)($editUser['head_department_id'] ?? 0) : 0;
 $isTeacherSelected = request_is_teacher_role($editUser['role'] ?? '');
+
+$isPccHeadChecked = $pccMethodistColumnsAvailable && ((int)($editUser['is_pcc_head'] ?? 0) === 1);
+$isMethodistChecked = $pccMethodistColumnsAvailable && ((int)($editUser['is_methodist'] ?? 0) === 1);
 
 $currentLang = getCurrentLanguage();
 ?>
@@ -299,6 +321,46 @@ $currentLang = getCurrentLanguage();
                                         <p class="text-xs text-red-600 mt-2">Отделения не найдены. Сначала добавьте отделение в разделе кабинетов/отделений.</p>
                                     <?php endif; ?>
                                 </div>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($pccMethodistColumnsAvailable): ?>
+                            <!-- Председатель ПЦК -->
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <label class="flex items-start gap-3 text-sm font-medium text-gray-700">
+                                    <input type="checkbox"
+                                           id="isPccHead"
+                                           name="is_pcc_head"
+                                           value="1"
+                                           class="mt-1"
+                                           <?= ($isPccHeadChecked && $isTeacherSelected) ? 'checked' : '' ?>
+                                           <?= $isTeacherSelected ? '' : 'disabled' ?>>
+                                    <span>
+                                        Назначить преподавателя председателем ПЦК
+                                        <span class="block text-xs text-gray-500 font-normal mt-1">
+                                            Председатель ПЦК, сможет назначать преподавателей на предметы РУПл и делать тарификационную ведомость.
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            
+                            <!-- Методист -->
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <label class="flex items-start gap-3 text-sm font-medium text-gray-700">
+                                    <input type="checkbox"
+                                           id="isMethodist"
+                                           name="is_methodist"
+                                           value="1"
+                                           class="mt-1"
+                                           <?= ($isMethodistChecked && $isTeacherSelected) ? 'checked' : '' ?>
+                                           <?= $isTeacherSelected ? '' : 'disabled' ?>>
+                                    <span>
+                                        Назначить преподавателя методистом
+                                        <span class="block text-xs text-gray-500 font-normal mt-1">
+                                            Методист может работать с РУП отправленными преподавателями.
+                                        </span>
+                                    </span>
+                                </label>
                             </div>
                             <?php endif; ?>
                             
@@ -452,12 +514,17 @@ $currentLang = getCurrentLanguage();
         
     </div>
     
-<?php if ($departmentHeadColumnsAvailable): ?>
+<?php if ($departmentHeadColumnsAvailable || $pccMethodistColumnsAvailable): ?>
 <script>
 (function () {
     const roleSelect = document.querySelector('select[name="role"]');
     const headCheckbox = document.getElementById('isDepartmentHead');
+    
     const departmentSelect = document.getElementById('headDepartmentId');
+
+    const pccCheckbox = document.getElementById('isPccHead');
+    const methodistCheckbox = document.getElementById('isMethodist');
+    
     const teacherCodes = ['teacher', '3', 'преподаватель', 'препод', 'технолог'];
 
     function isTeacherRole(value) {
@@ -477,11 +544,28 @@ $currentLang = getCurrentLanguage();
         }
     }
 
+    function syncPccMethodistControls() {
+        if (!roleSelect) return;
+        const teacher = isTeacherRole(roleSelect.value);
+        if (pccCheckbox) {
+            pccCheckbox.disabled = !teacher;
+            if (!teacher) pccCheckbox.checked = false;
+        }
+        if (methodistCheckbox) {
+            methodistCheckbox.disabled = !teacher;
+            if (!teacher) methodistCheckbox.checked = false;
+        }
+    }
+
     roleSelect && roleSelect.addEventListener('change', syncDepartmentHeadControls);
+    roleSelect && roleSelect.addEventListener('change', syncPccMethodistControls);
     headCheckbox && headCheckbox.addEventListener('change', syncDepartmentHeadControls);
     syncDepartmentHeadControls();
+    syncPccMethodistControls();
 })();
 </script>
 <?php endif; ?>
+
+
 </body>
 </html>
