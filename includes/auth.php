@@ -24,6 +24,10 @@ function getCurrentUser(): ?array {
         'full_name' => $_SESSION['full_name'],
         'role'      => $_SESSION['role'],
         'position'  => $_SESSION['position'] ?? '',
+        
+        //УМР
+        'is_pcc_head'=> $_SESSION['is_pcc_head'] ?? 0,
+        'is_methodist'=> $_SESSION['is_methodist'] ?? 0,
     ];
 }
 
@@ -78,6 +82,11 @@ function _loginLocal(PDO $pdo, string $username, string $password): bool {
             $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['role']      = $user['role'];
             $_SESSION['position']  = $user['position'] ?? '';
+
+            //УМР
+            $_SESSION['is_pcc_head'] = (int)($user['is_pcc_head'] ?? 0);
+            $_SESSION['is_methodist'] = (int)($user['is_methodist'] ?? 0);
+            
             logLogin($pdo, $user['id'], $user['username'],
                      $user['full_name'], $user['role'], 'local', true);
             session_write_close();
@@ -119,6 +128,10 @@ function _startSessionFromLdap(PDO $pdo, string $username, array $ldapUser): boo
         $_SESSION['role']      = $user['role'];
         $_SESSION['position']  = $user['position'] ?? '';
 
+        //УМР
+        $_SESSION['is_pcc_head'] = (int)($user['is_pcc_head'] ?? 0);
+        $_SESSION['is_methodist'] = (int)($user['is_methodist'] ?? 0);
+        
         logLogin($pdo, $user['id'], $username,
                  $_SESSION['full_name'], $user['role'], 'ldap', true);
         session_write_close();
