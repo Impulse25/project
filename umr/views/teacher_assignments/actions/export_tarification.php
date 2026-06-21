@@ -53,15 +53,13 @@ $stmt = $pdo->prepare("
     LEFT JOIN edu_curriculum_semester_meta sm
            ON sm.curriculum_id = g.curriculum_id
           AND sm.semester_num  = ta.semester_num
-    WHERE g.year_started <= :year_start1
-      AND (g.year_started + c.duration_years) > :year_start2
-      {$pccWhereClause}
+    WHERE g.year_started + FLOOR((ta.semester_num - 1) / 2) = :year_start1
+        {$pccWhereClause}
     ORDER BY u.full_name, g.name, m.sort_order, m.id, ta.semester_num
 ");
 
 $params = [
     ':year_start1' => $yearStart,
-    ':year_start2' => $yearStart,
 ];
 if ($filterPccId) {
     $params[':pcc_head_id'] = $filterPccId;
