@@ -61,7 +61,7 @@ function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'
             </button>
             <div class="faq-answer">
               Перейдите в раздел <b>РУП</b>, найдите нужную дисциплину и нажмите кнопку
-              <b>«Загрузить»</b>. Допустимые форматы файла: <b>.doc, .docx, .pdf</b>.
+              <b>«Загрузить»</b>. Допустимые форматы файла: <b>.doc, .docx, .pdf, .xls, .xlsx.</b>.
               Максимальный размер — <b>20 МБ</b>. После загрузки программа получает статус
               <span class="badge-status pending">На проверке</span> и ожидает решения председателя ПЦК.
               <div class="help-tip">
@@ -130,9 +130,9 @@ function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'
               </svg>
             </button>
             <div class="faq-answer">
-              Система принимает файлы в форматах <b>.doc</b>, <b>.docx</b> и <b>.pdf</b>.
+              Система принимает файлы в форматах <b>.doc</b>, <b>.docx</b> и <b>.pdf</b>, <b>.xls</b> и <b>.xlsx</b>.
               Максимальный допустимый размер файла — <b>20 МБ</b>.
-              Файлы других форматов (например, .odt, .pages, .xls) не принимаются.
+              Файлы других форматов (например, .odt, .pages, .pptx) не принимаются.
             </div>
           </div>
         </div>
