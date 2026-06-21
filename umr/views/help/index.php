@@ -22,12 +22,12 @@ function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'
 <body>
   
 <?php $_nav_active_key = '';
-      require __DIR__ . '/../../includes/sidebar.php'; ?>
+      require __DIR__ . '/../../partials/sidebar.php'; ?>
 
 <div class="main-wrapper" id="mainWrapper">
   <?php
     $_breadcrumbs = ['УМР' => null, 'Справка' => null];
-    require_once BASE_PATH . '/includes/topbar.php';
+    require_once BASE_PATH . '/partials/topbar.php';
   ?>
   <main class="page-content">
 
