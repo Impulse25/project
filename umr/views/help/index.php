@@ -1,7 +1,7 @@
 <?php
 // views/help/index.php
 define('BASE_PATH', dirname(__DIR__, 2));
-require_once BASE_PATH . '/includes/init.php';
+require_once BASE_PATH . '/partials/init.php';
 
 function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 ?>
