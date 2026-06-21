@@ -21,13 +21,13 @@ if ($isMethodist) {
 }
 
 // Обычный teacher с правом нагрузки
-if ($isPlainTeacher && $canViewLoadSummary) {
+if ($isPlainTeacher && $canWorkPrograms) {
     header('Location: views/load/');
     exit;
 }
 
 // Обычный teacher с правом только просмотра своих РУП
-if ($canViewWorkPrograms) {
+if ($isPlainTeacher && $canWorkPrograms) {
     header('Location: views/work_programs/');
     exit;
 }
