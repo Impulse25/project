@@ -14,7 +14,7 @@ if (!$canCurricula && !$isPccHead && !$isMethodist) {
 }
 
 // Подключение файлов
-require_once BASE_PATH . '/../vendor/autoload.php';
+require_once BASE_PATH . '/../edu/vendor/autoload.php';
 require_once BASE_PATH . '/models/baseModel.php';
 require_once BASE_PATH . '/models/edu_curriculum_calendar.php';
 
