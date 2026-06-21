@@ -21,8 +21,6 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 $yearStart = (int)($_GET['academic_year'] ?? date('Y'));
 $yearLabel = $yearStart . '/' . ($yearStart + 1);
 
-$filterPccId = null;
-$whereClauseGroups = '';
 
 $stmt = $pdo->prepare("
     SELECT
@@ -38,19 +36,13 @@ $stmt = $pdo->prepare("
     JOIN edu_curricula c ON c.id = g.curriculum_id
     JOIN edu_curriculum_modules m ON m.curriculum_id = c.id
     JOIN edu_curriculum_distribution d ON d.module_id = m.id
-    WHERE g.year_started <= :year_start1
-      AND (g.year_started + c.duration_years) > :year_start2
+    WHERE g.year_started + FLOOR((d.semester_num - 1) / 2) = :year_start
       AND m.control_work > 0
       AND m.is_summary = 0
-      {$whereClauseGroups}
     ORDER BY g.name, d.semester_num, m.sort_order, m.index_code
 ");
 
-$params = [':year_start1' => $yearStart, ':year_start2' => $yearStart];
-if ($filterPccId) {
-    $params[':pcc_head_id'] = $filterPccId;
-}
-$stmt->execute($params);
+$stmt->execute([':year_start' => $yearStart]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -169,7 +161,7 @@ foreach ($byGroup as $group) {
 }
 
 // Вывод
-$filename = 'Контрольные_работы_по_группам'  . '.xlsx';
+$filename = 'Контрольные_работы_по_группам_' . $yearLabel . '.xlsx';
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 header('Content-Disposition: attachment; filename="' . rawurlencode($filename) . '"');
