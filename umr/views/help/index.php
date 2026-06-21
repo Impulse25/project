@@ -333,7 +333,6 @@ document.querySelectorAll('.faq-question').forEach(btn => {
 });
 </script>
 
-// Тема и сайдбар
 <script src="../../js/umr.js"></script>
 </body>
 </html>
