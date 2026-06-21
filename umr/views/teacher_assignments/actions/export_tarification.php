@@ -10,7 +10,7 @@ if (!$canTeacherAssignments && !$isPccHead) {
   exit;
 }
 
-require_once BASE_PATH . '/../vendor/autoload.php';
+require_once BASE_PATH . '/../edu/vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
