@@ -28,7 +28,8 @@ if (!empty($_GET['pcc_head_id']) && $_GET['pcc_head_id'] !== 'all') {
     $filterPccId = (int)$_GET['pcc_head_id'];
 }
 
-$whereClause = $filterPccId ? 'AND ta.pcc_head_id = :pcc_head_id' : '';
+// Доп. условие по ПЦК — подставляется в текст запроса только если фильтр задан
+$pccWhereClause = $filterPccId ? 'AND ta.pcc_head_id = :pcc_head_id' : '';
 
 // Запрос
 $stmt = $pdo->prepare("
@@ -53,11 +54,15 @@ $stmt = $pdo->prepare("
            ON sm.curriculum_id = g.curriculum_id
           AND sm.semester_num  = ta.semester_num
     WHERE g.year_started <= :year_start1
-        AND (g.year_started + c.duration_years) > :year_start2
+      AND (g.year_started + c.duration_years) > :year_start2
+      {$pccWhereClause}
     ORDER BY u.full_name, g.name, m.sort_order, m.id, ta.semester_num
 ");
 
-$params = [':year_start1' => $yearStart, ':year_start2' => $yearStart];
+$params = [
+    ':year_start1' => $yearStart,
+    ':year_start2' => $yearStart,
+];
 if ($filterPccId) {
     $params[':pcc_head_id'] = $filterPccId;
 }
@@ -108,10 +113,7 @@ foreach ($rows as $row) {
         $entry['sem2_hours'] = $row['weekly_hours'] ? (float)$row['weekly_hours'] : null;
     }
 }
-unset($entry); // ВАЖНО: разрываем ссылку. Без этого следующий foreach по
-                // $teacher['rows'] (использующий ту же переменную $entry)
-                // перезапишет предпоследний элемент массива значением последнего —
-                // отсюда дублирование одной строки и "пропажа" другой.
+unset($entry);
 
 $spreadsheet = new Spreadsheet();
 $spreadsheet->removeSheetByIndex(0);
