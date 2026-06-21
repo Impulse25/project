@@ -8,7 +8,7 @@ if (!$canRegisterJournal && !$isPccHead && !$isMethodist) {
     exit('Нет доступа');
 }
 
-require_once BASE_PATH . '/../vendor/autoload.php';
+require_once BASE_PATH . '/../edu/vendor/autoload.php';
 require_once BASE_PATH . '/models/baseModel.php';
 require_once BASE_PATH . '/models/umr_register_journal.php';
 
