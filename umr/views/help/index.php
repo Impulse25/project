@@ -331,10 +331,9 @@ document.querySelectorAll('.faq-question').forEach(btn => {
     if (!isOpen) item.classList.add('open');
   });
 });
+</script>
 
 // Тема и сайдбар
 <script src="../../js/umr.js"></script>
-
-</script>
 </body>
 </html>
