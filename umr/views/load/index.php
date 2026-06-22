@@ -434,6 +434,6 @@ function sortLink(int $year, int $teacherId, string $dir): string {
 
   </main>
 </div>
-
+<script src="../../js/umr.js"></script>
 </body>
 </html>
