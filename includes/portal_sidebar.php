@@ -214,7 +214,15 @@ function _nav(string $href, string $label, string $svgPath, string $key, string 
 
 <!-- ══ ЕДИНЫЙ JS ══ -->
 <script>
+// Восстанавливаем collapsed сразу (до DOMContentLoaded), чтобы не было вспышки
 (function(){
+  if (localStorage.getItem('sidebarCollapsed') === 'true') {
+    var s = document.getElementById('sidebar');
+    if (s) s.classList.add('collapsed');
+  }
+})();
+
+document.addEventListener('DOMContentLoaded', function() {
   const sidebar   = document.getElementById('sidebar');
   const mainWrap  = document.getElementById('mainWrapper');
   const overlay   = document.getElementById('sidebarOverlay');
@@ -239,14 +247,13 @@ function _nav(string $href, string $label, string $svgPath, string $key, string 
     if (mainWrap) mainWrap.classList.toggle('sidebar-collapsed', val);
     localStorage.setItem('sidebarCollapsed', val);
   }
-  // Восстановить состояние
-  if (localStorage.getItem('sidebarCollapsed') === 'true') {
-    applyCollapsed(true);
+  // Синхронизируем mainWrapper с уже применённым классом сайдбара
+  if (mainWrap && sidebar && sidebar.classList.contains('collapsed')) {
+    mainWrap.classList.add('sidebar-collapsed');
   }
   if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
       if (window.innerWidth <= 768) {
-        // На мобилке toggle-кнопка закрывает drawer
         closeMobile();
       } else {
         applyCollapsed(!sidebar.classList.contains('collapsed'));
@@ -257,19 +264,19 @@ function _nav(string $href, string $label, string $svgPath, string $key, string 
   // ── Мобилка: открыть drawer ─────────────────
   function openMobile() {
     sidebar.classList.add('mobile-open');
-    overlay.classList.add('active');
+    if (overlay) overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
   }
   function closeMobile() {
     sidebar.classList.remove('mobile-open');
-    overlay.classList.remove('active');
+    if (overlay) overlay.classList.remove('active');
     document.body.style.overflow = '';
   }
 
   if (hamburger) hamburger.addEventListener('click', openMobile);
   if (overlay)   overlay.addEventListener('click', closeMobile);
 
-  // Закрытие по клику на nav-item (SPA-поведение)
+  // Закрытие по клику на nav-item
   sidebar.querySelectorAll('.nav-item').forEach(link => {
     link.addEventListener('click', () => {
       if (window.innerWidth <= 768) closeMobile();
@@ -283,7 +290,7 @@ function _nav(string $href, string $label, string $svgPath, string $key, string 
     if (touchStartX - e.changedTouches[0].clientX > 60) closeMobile();
   }, {passive:true});
 
-  // Свайп вправо от края экрана для открытия
+  // Свайп вправо от края для открытия
   document.addEventListener('touchstart', e => {
     if (e.touches[0].clientX < 20) touchStartX = e.touches[0].clientX;
   }, {passive:true});
@@ -295,5 +302,5 @@ function _nav(string $href, string $label, string $svgPath, string $key, string 
   window.addEventListener('resize', () => {
     if (window.innerWidth > 768) closeMobile();
   });
-})();
+});
 </script>
