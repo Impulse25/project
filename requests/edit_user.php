@@ -40,9 +40,12 @@ function request_ensure_department_head_columns(PDO $pdo): void
         if (!request_table_column_exists($pdo, 'users', 'is_methodist')) {
             $pdo->exec("ALTER TABLE users ADD COLUMN is_methodist TINYINT(1) NOT NULL DEFAULT 0");
         }
+        if (!request_table_column_exists($pdo, 'users', 'is_practice_director')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN is_practice_director TINYINT(1) NOT NULL DEFAULT 0");
+        }
     } catch (Throwable $e) {
         // Если у пользователя БД нет прав на ALTER, страницу не ломаем.
-        // Для ручного применения есть edu/migrations/017_teacher_department_heads.sql.
+        // Для ручного применения есть edu/migrations/017_teacher_department_heads.sql и 018_hr_practice_director_and_statuses.sql.
     }
 }
 
@@ -82,6 +85,7 @@ $departmentHeadColumnsAvailable = request_table_column_exists($pdo, 'users', 'is
 
 $pccMethodistColumnsAvailable = request_table_column_exists($pdo, 'users', 'is_pcc_head')
     && request_table_column_exists($pdo, 'users', 'is_methodist');
+$practiceDirectorColumnAvailable = request_table_column_exists($pdo, 'users', 'is_practice_director');
 
 $departments = [];
 try {
@@ -108,13 +112,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'];
     $position = $_POST['position'];
     $newPassword = $_POST['new_password'] ?? '';
-    $isDepartmentHead = ($departmentHeadColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_department_head'])) ? 1 : 0;
+    $postedDepartmentHead = ($departmentHeadColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_department_head'])) ? 1 : 0;
     
     $isPccHead = ($pccMethodistColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_pcc_head'])) ? 1 : 0;
     $isMethodist = ($pccMethodistColumnsAvailable && request_is_teacher_role($role) && isset($_POST['is_methodist'])) ? 1 : 0;
+    $isPracticeDirector = ($practiceDirectorColumnAvailable && isset($_POST['is_practice_director'])) ? 1 : 0;
+    $isDepartmentHead = ($postedDepartmentHead && !$isPracticeDirector) ? 1 : 0;
+
+    if ($postedDepartmentHead && $isPracticeDirector) {
+        $error = 'Выберите только одну HR-роль: заведующий отделением или заместитель директора по практике.';
+    }
     
     $headDepartmentId = null;
-    if ($isDepartmentHead) {
+    if (!$error && $isDepartmentHead) {
         $headDepartmentId = ($_POST['head_department_id'] ?? '') !== '' ? (int)$_POST['head_department_id'] : null;
         if (!$headDepartmentId) {
             $error = 'Выберите отделение для заведующего.';
@@ -145,6 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $setSql .= ", is_pcc_head = ?, is_methodist = ?";
             $updateParams[] = $isPccHead;
             $updateParams[] = $isMethodist;
+        }
+
+        if ($practiceDirectorColumnAvailable) {
+            $setSql .= ", is_practice_director = ?";
+            $updateParams[] = $isPracticeDirector;
         }
 
         if ($newPassword) {
@@ -185,12 +200,12 @@ if (!$currentRoleName) {
     $currentRoleName = $oldRoleNames[$editUser['role']] ?? 'Неизвестная роль';
 }
 
-$isDepartmentHeadChecked = $departmentHeadColumnsAvailable && ((int)($editUser['is_department_head'] ?? 0) === 1);
-$selectedHeadDepartmentId = $departmentHeadColumnsAvailable ? (int)($editUser['head_department_id'] ?? 0) : 0;
-$isTeacherSelected = request_is_teacher_role($editUser['role'] ?? '');
-
 $isPccHeadChecked = $pccMethodistColumnsAvailable && ((int)($editUser['is_pcc_head'] ?? 0) === 1);
 $isMethodistChecked = $pccMethodistColumnsAvailable && ((int)($editUser['is_methodist'] ?? 0) === 1);
+$isPracticeDirectorChecked = $practiceDirectorColumnAvailable && ((int)($editUser['is_practice_director'] ?? 0) === 1);
+$isDepartmentHeadChecked = $departmentHeadColumnsAvailable && !$isPracticeDirectorChecked && ((int)($editUser['is_department_head'] ?? 0) === 1);
+$selectedHeadDepartmentId = $departmentHeadColumnsAvailable ? (int)($editUser['head_department_id'] ?? 0) : 0;
+$isTeacherSelected = request_is_teacher_role($editUser['role'] ?? '');
 
 $currentLang = getCurrentLanguage();
 ?>
@@ -299,7 +314,7 @@ $currentLang = getCurrentLanguage();
                                         Назначить преподавателя заведующим отделением
                                         <span class="block text-xs text-gray-500 font-normal mt-1">
                                             На главной странице edu ему будут видны все студенты из групп выбранного отделения.
-                                            Без этой отметки преподаватель видит только группы, где он указан куратором.
+                                            В HR-Аналитике будет доступна статистика только выбранного отделения.
                                         </span>
                                     </span>
                                 </label>
@@ -321,6 +336,27 @@ $currentLang = getCurrentLanguage();
                                         <p class="text-xs text-red-600 mt-2">Отделения не найдены. Сначала добавьте отделение в разделе кабинетов/отделений.</p>
                                     <?php endif; ?>
                                 </div>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if ($practiceDirectorColumnAvailable): ?>
+                            <!-- Заместитель директора по практике -->
+                            <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <label class="flex items-start gap-3 text-sm font-medium text-gray-700">
+                                    <input type="checkbox"
+                                           id="isPracticeDirector"
+                                           name="is_practice_director"
+                                           value="1"
+                                           class="mt-1"
+                                           <?= $isPracticeDirectorChecked ? 'checked' : '' ?>>
+                                    <span>
+                                        Назначить заместителем директора по практике
+                                        <span class="block text-xs text-gray-500 font-normal mt-1">
+                                            В HR-Аналитике пользователь будет видеть статистику по всем отделениям колледжа и карточку диаграммы.
+                                            Эта роль не совмещается с заведующим отделением.
+                                        </span>
+                                    </span>
+                                </label>
                             </div>
                             <?php endif; ?>
 
@@ -514,11 +550,12 @@ $currentLang = getCurrentLanguage();
         
     </div>
     
-<?php if ($departmentHeadColumnsAvailable || $pccMethodistColumnsAvailable): ?>
+<?php if ($departmentHeadColumnsAvailable || $pccMethodistColumnsAvailable || $practiceDirectorColumnAvailable): ?>
 <script>
 (function () {
     const roleSelect = document.querySelector('select[name="role"]');
     const headCheckbox = document.getElementById('isDepartmentHead');
+    const practiceCheckbox = document.getElementById('isPracticeDirector');
     
     const departmentSelect = document.getElementById('headDepartmentId');
 
@@ -544,6 +581,16 @@ $currentLang = getCurrentLanguage();
         }
     }
 
+    function syncHrScopeChoice(changed) {
+        if (changed === 'department' && headCheckbox && headCheckbox.checked && practiceCheckbox) {
+            practiceCheckbox.checked = false;
+        }
+        if (changed === 'practice' && practiceCheckbox && practiceCheckbox.checked && headCheckbox) {
+            headCheckbox.checked = false;
+        }
+        syncDepartmentHeadControls();
+    }
+
     function syncPccMethodistControls() {
         if (!roleSelect) return;
         const teacher = isTeacherRole(roleSelect.value);
@@ -559,7 +606,9 @@ $currentLang = getCurrentLanguage();
 
     roleSelect && roleSelect.addEventListener('change', syncDepartmentHeadControls);
     roleSelect && roleSelect.addEventListener('change', syncPccMethodistControls);
-    headCheckbox && headCheckbox.addEventListener('change', syncDepartmentHeadControls);
+    headCheckbox && headCheckbox.addEventListener('change', () => syncHrScopeChoice('department'));
+    practiceCheckbox && practiceCheckbox.addEventListener('change', () => syncHrScopeChoice('practice'));
+    syncHrScopeChoice();
     syncDepartmentHeadControls();
     syncPccMethodistControls();
 })();
