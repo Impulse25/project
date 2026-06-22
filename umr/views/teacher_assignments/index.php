@@ -185,6 +185,7 @@ function e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'
       'УМР' => null, 
       'Тарификация' => null];
     require_once BASE_PATH . '/partials/topbar.php';
+    require_once BASE_PATH . '/partials/umr_subnav.php';
   ?>
 
   <main class="page-content">
