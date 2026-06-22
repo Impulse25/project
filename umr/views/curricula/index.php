@@ -267,6 +267,7 @@ unset($_SESSION['flash']);
       'УМР' => null,
       'График учебного процесса' => null];
     require_once BASE_PATH . '/partials/topbar.php';
+    require_once BASE_PATH . '/partials/umr_subnav.php';
   ?>
 
   <main class="page-content">
