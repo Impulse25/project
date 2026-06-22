@@ -1,741 +1,482 @@
 <?php
+/**
+ * СВГТК Портал — модуль «Аналитика и отчётность»
+ * Подключён к реальным таблицам портала:
+ * edu_groups, edu_students, users, edu_grades, edu_grade_sheets, att_attendance.
+ */
 session_start();
-$userRole   = $_SESSION['role'] ?? '';
-$userName   = $_SESSION['full_name'] ?? '';
-$isAdmin    = in_array($userRole, ['admin', 'director']);
-$isLoggedIn = isset($_SESSION['user_id']);
-$nameParts  = explode(' ', trim($userName));
-$initials   = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
+
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../requests/login.php');
+    exit;
+}
+
+require_once __DIR__ . '/../config/db.php';
+
+$userId = (int)($_SESSION['user_id'] ?? 0);
+$userRoleRaw = $_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '';
+$userName = trim((string)($_SESSION['full_name'] ?? ''));
+
+require_once __DIR__ . '/includes/helpers.php';
+
+$allowedGroupIds = an_accessible_group_ids($pdo, $userId, $role);
+$inGroups = an_in($allowedGroupIds);
+
+$period = $_GET['period'] ?? 'month';
+if (!in_array($period, ['week', 'month', 'semester', 'year', 'custom'], true)) $period = 'month';
+[$dateFrom, $dateTo] = an_date_range($period, $_GET['date_from'] ?? '', $_GET['date_to'] ?? '');
+
+$section = $_GET['section'] ?? 'dashboard';
+if (!in_array($section, ['dashboard', 'grades', 'attendance', 'graduates', 'report', 'help'], true)) $section = 'dashboard';
+
+$criterion = $_GET['criterion'] ?? 'all';
+$sub = $_GET['sub'] ?? 'all';
+$groupId = (int)($_GET['group_id'] ?? 0);
+if ($groupId > 0 && !in_array($groupId, $allowedGroupIds, true)) $groupId = 0;
+$topMode = $_GET['top_mode'] ?? 'attendance_low';
+$topNMode = $_GET['top_n'] ?? '5';
+$topCustom = max(1, min(100, (int)($_GET['top_custom'] ?? 5)));
+$topN = in_array($topNMode, ['3','5','10'], true) ? (int)$topNMode : $topCustom;
+
+$groups = [];
+if ($allowedGroupIds) {
+    $stmt = $pdo->query("
+        SELECT g.id, g.name,
+               COUNT(s.id) AS students_count
+        FROM edu_groups g
+        LEFT JOIN edu_students s ON s.group_id = g.id
+        WHERE g.id IN ($inGroups)
+        GROUP BY g.id, g.name
+        ORDER BY g.name
+    ");
+    $groups = $stmt->fetchAll();
+}
+
+$totalStudents = 0;
+foreach ($groups as $g) $totalStudents += (int)$g['students_count'];
+
+$hasGrades = an_table_exists($pdo, 'edu_grades') && an_table_exists($pdo, 'edu_grade_sheets');
+$hasAttendance = an_table_exists($pdo, 'att_attendance');
+
+$avgGrade = null; $excellentCount = 0; $riskGrades = 0;
+if ($hasGrades && $allowedGroupIds) {
+    $where = "s.group_id IN ($inGroups) AND eg.grade IS NOT NULL AND (gs.status IS NULL OR gs.status <> 'rejected')";
+    $params = [];
+    if (an_column_exists($pdo, 'edu_grades', 'updated_at')) {
+        $where .= " AND DATE(COALESCE(eg.updated_at, eg.created_at, NOW())) BETWEEN ? AND ?";
+        $params[] = $dateFrom; $params[] = $dateTo;
+    }
+    $stmt = $pdo->prepare("
+        SELECT AVG(eg.grade) AS avg_grade,
+               SUM(CASE WHEN eg.grade >= 90 THEN 1 ELSE 0 END) AS excellent_count,
+               SUM(CASE WHEN eg.grade <= 50 THEN 1 ELSE 0 END) AS risk_count
+        FROM edu_grades eg
+        JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id
+        JOIN edu_students s ON s.id = eg.student_id
+        WHERE $where
+    ");
+    $stmt->execute($params);
+    $row = $stmt->fetch() ?: [];
+    $avgGrade = $row['avg_grade'] !== null ? round((float)$row['avg_grade'], 1) : null;
+    $excellentCount = (int)($row['excellent_count'] ?? 0);
+    $riskGrades = (int)($row['risk_count'] ?? 0);
+}
+
+$attendanceAvg = null; $absenceHours = 0;
+if ($hasAttendance && $allowedGroupIds) {
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(CASE WHEN a.status IN ('absent','late') THEN a.hours_missed ELSE 0 END), 0) AS absent_hours,
+               COUNT(DISTINCT s.id) AS st_count
+        FROM edu_students s
+        LEFT JOIN att_attendance a ON a.student_id = s.id AND a.date BETWEEN ? AND ?
+        WHERE s.group_id IN ($inGroups)
+    ");
+    $stmt->execute([$dateFrom, $dateTo]);
+    $row = $stmt->fetch() ?: [];
+    $absenceHours = (int)($row['absent_hours'] ?? 0);
+    $days = max(1, (int)round((strtotime($dateTo) - strtotime($dateFrom)) / 86400) + 1);
+    $plannedHours = max(1, (int)($row['st_count'] ?? 0) * $days * 6);
+    $attendanceAvg = round(max(0, ($plannedHours - $absenceHours) / $plannedHours * 100), 1);
+}
+
+$graduates = 0;
+foreach ($groups as $g) if (an_group_is_graduate((string)$g['name'])) $graduates += (int)$g['students_count'];
+
+$groupRows = [];
+if ($allowedGroupIds) {
+    $gradeJoin = $hasGrades ? "
+        LEFT JOIN edu_grades eg ON eg.student_id = s.id
+        LEFT JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id AND (gs.status IS NULL OR gs.status <> 'rejected')
+    " : "";
+    $attJoin = $hasAttendance ? "
+        LEFT JOIN att_attendance a ON a.student_id = s.id AND a.date BETWEEN :df AND :dt
+    " : "";
+    $sql = "
+        SELECT g.id, g.name,
+               COUNT(DISTINCT s.id) AS students_count
+               " . ($hasGrades ? ", AVG(eg.grade) AS avg_grade" : ", NULL AS avg_grade") . "
+               " . ($hasAttendance ? ", COALESCE(SUM(CASE WHEN a.status IN ('absent','late') THEN a.hours_missed ELSE 0 END),0) AS absent_hours" : ", 0 AS absent_hours") . "
+        FROM edu_groups g
+        LEFT JOIN edu_students s ON s.group_id = g.id
+        $gradeJoin
+        $attJoin
+        WHERE g.id IN ($inGroups)
+        GROUP BY g.id, g.name
+        ORDER BY g.name
+    ";
+    $stmt = $pdo->prepare($sql);
+    $hasAttendance ? $stmt->execute([':df' => $dateFrom, ':dt' => $dateTo]) : $stmt->execute();
+    foreach ($stmt->fetchAll() as $r) {
+        $course = an_course_from_group((string)$r['name']);
+        $days = max(1, (int)round((strtotime($dateTo) - strtotime($dateFrom)) / 86400) + 1);
+        $plan = max(1, (int)$r['students_count'] * $days * 6);
+        $attPct = $hasAttendance ? round(max(0, ($plan - (int)$r['absent_hours']) / $plan * 100), 1) : null;
+        $avg = $r['avg_grade'] !== null ? round((float)$r['avg_grade'], 1) : null;
+        $status = ($avg === null && $attPct === null) ? 'Нет данных' : 'Стабильная';
+        if (($avg !== null && $avg < 60) || ($attPct !== null && $attPct < 65)) $status = 'Проблемная';
+        elseif (($avg !== null && $avg < 70) || ($attPct !== null && $attPct < 75)) $status = 'Требует контроля';
+        $groupRows[] = [
+            'id' => (int)$r['id'],
+            'name' => (string)$r['name'],
+            'course' => $course,
+            'students_count' => (int)$r['students_count'],
+            'avg_grade' => $avg,
+            'attendance' => $attPct,
+            'graduates' => an_group_is_graduate((string)$r['name']) ? (int)$r['students_count'] : 0,
+            'status' => $status,
+        ];
+    }
+}
+
+$filteredRows = array_values(array_filter($groupRows, function($r) use ($criterion, $sub, $groupId) {
+    if ($groupId > 0 && (int)$r['id'] !== $groupId) return false;
+    if ($criterion === 'status' && $sub !== 'all') return $r['status'] === $sub;
+    if ($criterion === 'course' && $sub !== 'all') return $r['course'] === $sub;
+    if ($criterion === 'graduates') return $r['graduates'] > 0;
+    if ($criterion === 'grade') {
+        if ($sub === 'excellent') return $r['avg_grade'] !== null && $r['avg_grade'] >= 90;
+        if ($sub === 'good') return $r['avg_grade'] !== null && $r['avg_grade'] >= 70 && $r['avg_grade'] < 90;
+        if ($sub === 'risk') return $r['avg_grade'] !== null && $r['avg_grade'] < 60;
+    }
+    if ($criterion === 'attendance') {
+        if ($sub === 'high') return $r['attendance'] !== null && $r['attendance'] >= 85;
+        if ($sub === 'control') return $r['attendance'] !== null && $r['attendance'] >= 65 && $r['attendance'] < 75;
+        if ($sub === 'low') return $r['attendance'] !== null && $r['attendance'] < 65;
+    }
+    return true;
+}));
+
+$topRows = [];
+if ($allowedGroupIds && in_array($section, ['grades', 'attendance', 'report'], true)) {
+    if (str_starts_with($topMode, 'attendance') && $hasAttendance) {
+        $dir = $topMode === 'attendance_high' ? 'DESC' : 'ASC';
+        $sql = "
+            SELECT s.id, CONCAT(s.surname,' ',s.name, IF(s.patronymic IS NULL OR s.patronymic='', '', CONCAT(' ',s.patronymic))) AS full_name,
+                   g.name AS group_name,
+                   COALESCE(SUM(CASE WHEN a.status IN ('absent','late') THEN a.hours_missed ELSE 0 END),0) AS absent_hours
+            FROM edu_students s
+            JOIN edu_groups g ON g.id = s.group_id
+            LEFT JOIN att_attendance a ON a.student_id = s.id AND a.date BETWEEN :df AND :dt
+            WHERE s.group_id IN ($inGroups) " . ($groupId > 0 ? "AND g.id = :gid" : "") . "
+            GROUP BY s.id, s.surname, s.name, s.patronymic, g.name
+        ";
+        $stmt = $pdo->prepare($sql);
+        $params = [':df' => $dateFrom, ':dt' => $dateTo];
+        if ($groupId > 0) $params[':gid'] = $groupId;
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        $days = max(1, (int)round((strtotime($dateTo) - strtotime($dateFrom)) / 86400) + 1);
+        foreach ($rows as &$r) {
+            $plan = max(1, $days * 6);
+            $r['value'] = round(max(0, ($plan - (int)$r['absent_hours']) / $plan * 100), 1);
+            $r['value_title'] = $r['value'] . '% посещаемости';
+        }
+        usort($rows, fn($a, $b) => $dir === 'ASC' ? ($a['value'] <=> $b['value']) : ($b['value'] <=> $a['value']));
+        $topRows = array_slice($rows, 0, $topN);
+    } elseif (str_starts_with($topMode, 'grades') && $hasGrades) {
+        $dir = $topMode === 'grades_best' ? 'DESC' : 'ASC';
+        $sql = "
+            SELECT s.id, CONCAT(s.surname,' ',s.name, IF(s.patronymic IS NULL OR s.patronymic='', '', CONCAT(' ',s.patronymic))) AS full_name,
+                   g.name AS group_name,
+                   AVG(eg.grade) AS avg_grade
+            FROM edu_students s
+            JOIN edu_groups g ON g.id = s.group_id
+            JOIN edu_grades eg ON eg.student_id = s.id
+            JOIN edu_grade_sheets gs ON gs.id = eg.grade_sheet_id
+            WHERE s.group_id IN ($inGroups) AND eg.grade IS NOT NULL AND (gs.status IS NULL OR gs.status <> 'rejected')
+              " . ($groupId > 0 ? "AND g.id = :gid" : "") . "
+            GROUP BY s.id, s.surname, s.name, s.patronymic, g.name
+            ORDER BY avg_grade $dir
+            LIMIT $topN
+        ";
+        $stmt = $pdo->prepare($sql);
+        $params = [];
+        if ($groupId > 0) $params[':gid'] = $groupId;
+        $stmt->execute($params);
+        $topRows = $stmt->fetchAll();
+        foreach ($topRows as &$r) {
+            $r['value'] = round((float)$r['avg_grade'], 1);
+            $r['value_title'] = $r['value'] . ' средний балл';
+        }
+    }
+}
+
+
+// Данные для графиков Dashboard
+$gradeDistribution = ['90-100'=>0,'70-89'=>0,'51-69'=>0,'0-50'=>0];
+if ($hasGrades && $allowedGroupIds) {
+    $where = "s.group_id IN ($inGroups) AND eg.grade IS NOT NULL";
+    $params = [];
+    if (an_column_exists($pdo, 'edu_grades', 'updated_at')) {
+        $where .= " AND DATE(COALESCE(eg.updated_at, eg.created_at, NOW())) BETWEEN ? AND ?";
+        $params[] = $dateFrom; $params[] = $dateTo;
+    } elseif (an_column_exists($pdo, 'edu_grades', 'created_at')) {
+        $where .= " AND DATE(eg.created_at) BETWEEN ? AND ?";
+        $params[] = $dateFrom; $params[] = $dateTo;
+    }
+    $stmt = $pdo->prepare("\n        SELECT\n          SUM(CASE WHEN eg.grade >= 90 THEN 1 ELSE 0 END) AS g5,\n          SUM(CASE WHEN eg.grade >= 70 AND eg.grade < 90 THEN 1 ELSE 0 END) AS g4,\n          SUM(CASE WHEN eg.grade >= 51 AND eg.grade < 70 THEN 1 ELSE 0 END) AS g3,\n          SUM(CASE WHEN eg.grade < 51 THEN 1 ELSE 0 END) AS g2\n        FROM edu_grades eg\n        JOIN edu_students s ON s.id = eg.student_id\n        WHERE $where\n    ");
+    $stmt->execute($params);
+    $gd = $stmt->fetch() ?: [];
+    $gradeDistribution = ['90-100'=>(int)($gd['g5']??0),'70-89'=>(int)($gd['g4']??0),'51-69'=>(int)($gd['g3']??0),'0-50'=>(int)($gd['g2']??0)];
+}
+
+$courseBuckets = [];
+foreach ($groupRows as $r) {
+    $course = $r['course'] ?: 'Не определён';
+    if (!isset($courseBuckets[$course])) $courseBuckets[$course] = ['grades'=>[], 'attendance'=>[]];
+    if ($r['avg_grade'] !== null) $courseBuckets[$course]['grades'][] = (float)$r['avg_grade'];
+    if ($r['attendance'] !== null) $courseBuckets[$course]['attendance'][] = (float)$r['attendance'];
+}
+uksort($courseBuckets, function($a,$b){ return strnatcmp($a,$b); });
+$courseLabels = array_keys($courseBuckets);
+$courseGradeData = [];
+$courseAttendanceData = [];
+foreach ($courseBuckets as $bucket) {
+    $courseGradeData[] = count($bucket['grades']) ? round(array_sum($bucket['grades']) / count($bucket['grades']), 1) : 0;
+    $courseAttendanceData[] = count($bucket['attendance']) ? round(array_sum($bucket['attendance']) / count($bucket['attendance']), 1) : 0;
+}
+
+$periodTitles = ['week'=>'неделя','month'=>'месяц','semester'=>'семестр','year'=>'год','custom'=>'свой срок'];
+$roleTitle = ['admin'=>'Администратор','director'=>'Директор','teacher'=>'Преподаватель'][$role] ?? 'Пользователь';
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru" data-theme="light">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Аналитика — СВГТК Портал</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
-  <style>
-/* ============================================================
-   СВГТК Портал — Стили дашборда
-   Цветовая схема: синий + белый (как svgtk.kz)
-   ============================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Montserrat:wght@600;700&display=swap');
-
-:root, [data-theme="light"] {
-  --color-bg:              #f0f4f8;
-  --color-surface:         #ffffff;
-  --color-surface-2:       #f8fafc;
-  --color-surface-offset:  #eef2f7;
-  --color-divider:         #e2e8f0;
-  --color-border:          #cbd5e1;
-  --color-text:            #1e293b;
-  --color-text-muted:      #64748b;
-  --color-text-faint:      #94a3b8;
-  --color-text-inverse:    #ffffff;
-
-  --color-primary:           #1a56db;
-  --color-primary-hover:     #1346c2;
-  --color-primary-active:    #0c38a8;
-  --color-primary-highlight: #dbeafe;
-
-  --color-success:           #16a34a;
-  --color-success-highlight: #dcfce7;
-  --color-warning:           #d97706;
-  --color-warning-highlight: #fef3c7;
-  --color-error:             #dc2626;
-  --color-error-highlight:   #fee2e2;
-  --color-gold:              #ca8a04;
-  --color-gold-highlight:    #fef9c3;
-
-  --radius-sm:   0.375rem;
-  --radius-md:   0.5rem;
-  --radius-lg:   0.75rem;
-  --radius-xl:   1rem;
-  --radius-full: 9999px;
-
-  --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
-
-  --shadow-sm: 0 1px 3px rgba(30,41,59,.08);
-  --shadow-md: 0 4px 12px rgba(30,41,59,.10);
-  --shadow-lg: 0 12px 32px rgba(30,41,59,.13);
-
-  --font-body:    'Inter', -apple-system, sans-serif;
-  --font-display: 'Montserrat', 'Inter', sans-serif;
-
-  --text-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
-  --text-sm:   clamp(0.875rem, 0.8rem  + 0.35vw, 1rem);
-  --text-base: clamp(1rem,     0.95rem + 0.25vw, 1.125rem);
-  --text-lg:   clamp(1.125rem, 1rem    + 0.75vw, 1.5rem);
-  --text-xl:   clamp(1.5rem,   1.2rem  + 1.25vw, 2rem);
-
-  --space-1:  0.25rem;
-  --space-2:  0.5rem;
-  --space-3:  0.75rem;
-  --space-4:  1rem;
-  --space-5:  1.25rem;
-  --space-6:  1.5rem;
-  --space-8:  2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
-
-  --sidebar-width: 240px;
-  --topbar-height: 56px;
-}
-
-[data-theme="dark"] {
-  --color-bg:              #0f172a;
-  --color-surface:         #1e293b;
-  --color-surface-2:       #263449;
-  --color-surface-offset:  #1a2740;
-  --color-divider:         #2d3f57;
-  --color-border:          #374f6b;
-  --color-text:            #e2e8f0;
-  --color-text-muted:      #94a3b8;
-  --color-text-faint:      #64748b;
-  --color-text-inverse:    #0f172a;
-
-  --color-primary:           #3b82f6;
-  --color-primary-hover:     #60a5fa;
-  --color-primary-active:    #93c5fd;
-  --color-primary-highlight: #1e3a5f;
-
-  --color-success:           #22c55e;
-  --color-success-highlight: #14532d;
-  --color-warning:           #f59e0b;
-  --color-warning-highlight: #451a03;
-  --color-error:             #ef4444;
-  --color-error-highlight:   #450a0a;
-  --color-gold:              #eab308;
-  --color-gold-highlight:    #422006;
-
-  --shadow-sm: 0 1px 3px rgba(0,0,0,.25);
-  --shadow-md: 0 4px 12px rgba(0,0,0,.35);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,.45);
-}
-
-/* ── Reset ─────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
-
-body {
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  background: var(--color-bg);
-  min-height: 100dvh;
-  display: flex;
-  line-height: 1.6;
-}
-
-img, svg { display: block; max-width: 100%; }
-a { color: inherit; text-decoration: none; }
-button { cursor: pointer; background: none; border: none; font: inherit; color: inherit; }
-table { border-collapse: collapse; width: 100%; }
-input, select, textarea { font: inherit; color: inherit; }
-h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
-
-:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* ── Sidebar ───────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar-width);
-  min-height: 100dvh;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-divider);
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
-  z-index: 100;
-  transition: width var(--transition), transform var(--transition);
-  overflow: hidden;
-}
-
-.sidebar.collapsed { width: 60px; }
-.sidebar.collapsed .logo-text,
-.sidebar.collapsed .nav-section-label,
-.sidebar.collapsed .nav-item span,
-.sidebar.collapsed .sidebar-footer { opacity: 0; pointer-events: none; }
-.sidebar.collapsed .nav-item { justify-content: center; padding-inline: 0; }
-.sidebar.collapsed .sidebar-toggle { transform: rotate(180deg); }
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--color-divider);
-  min-height: var(--topbar-height);
-  gap: var(--space-2);
-}
-
-.logo { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
-.logo-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-.logo-title {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: 700;
-  color: var(--color-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.logo-sub { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; }
-
-.sidebar-toggle {
-  width: 28px; height: 28px; flex-shrink: 0;
-  border-radius: var(--radius-md);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--color-text-muted);
-  transition: background var(--transition), transform var(--transition), color var(--transition);
-}
-.sidebar-toggle:hover { background: var(--color-surface-offset); color: var(--color-text); }
-
-.sidebar-nav {
-  flex: 1;
-  padding: var(--space-3) var(--space-3);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.nav-section-label {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-  padding: var(--space-4) var(--space-3) var(--space-2);
-  white-space: nowrap;
-  overflow: hidden;
-  transition: opacity var(--transition);
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  transition: background var(--transition), color var(--transition);
-  white-space: nowrap;
-  margin-bottom: var(--space-1);
-  overflow: hidden;
-}
-.nav-item:hover { background: var(--color-surface-offset); color: var(--color-text); }
-.nav-item.active {
-  background: var(--color-primary-highlight);
-  color: var(--color-primary);
-  font-weight: 600;
-}
-.nav-item svg { flex-shrink: 0; }
-
-.sidebar-footer {
-  padding: var(--space-4);
-  border-top: 1px solid var(--color-divider);
-  transition: opacity var(--transition);
-  overflow: hidden;
-}
-.college-info { display: flex; flex-direction: column; gap: 2px; }
-.college-info span { font-size: var(--text-xs); color: var(--color-text-faint); white-space: nowrap; }
-
-/* ── Main wrapper ──────────────────────────────────── */
-.main-wrapper {
-  margin-left: var(--sidebar-width);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 100dvh;
-  min-width: 0;
-  transition: margin-left var(--transition);
-}
-.main-wrapper.sidebar-collapsed { margin-left: 60px; }
-
-/* ── Topbar ────────────────────────────────────────── */
-.topbar {
-  height: var(--topbar-height);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-divider);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  gap: var(--space-4);
-}
-
-.topbar-left { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
-
-.mobile-menu-btn {
-  display: none;
-  width: 36px; height: 36px;
-  align-items: center; justify-content: center;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-  transition: background var(--transition);
-}
-.mobile-menu-btn:hover { background: var(--color-surface-offset); }
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  min-width: 0;
-  overflow: hidden;
-}
-.breadcrumb-root { color: var(--color-text-muted); white-space: nowrap; }
-.breadcrumb svg { color: var(--color-text-faint); flex-shrink: 0; }
-.breadcrumb-current {
-  color: var(--color-text);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.topbar-right { display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0; }
-
-.academic-year-badge {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  background: var(--color-surface-offset);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.theme-toggle {
-  width: 36px; height: 36px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  transition: background var(--transition), color var(--transition);
-  flex-shrink: 0;
-}
-.theme-toggle:hover { background: var(--color-surface-offset); color: var(--color-text); }
-
-.user-avatar {
-  width: 32px; height: 32px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
-  display: flex; align-items: center; justify-content: center;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-/* ── Page content ──────────────────────────────────── */
-.page-content { flex: 1; padding: var(--space-6); min-width: 0; }
-
-.page-header {
-  margin-bottom: var(--space-6);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-}
-
-.page-title {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--color-text);
-  line-height: 1.2;
-}
-.page-subtitle {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  margin-top: var(--space-1);
-}
-.page-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
-
-/* ── Buttons ───────────────────────────────────────── */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  transition: background var(--transition), color var(--transition),
-              border-color var(--transition), box-shadow var(--transition);
-}
-.btn-primary {
-  background: var(--color-primary);
-  color: var(--color-text-inverse);
-  border-color: var(--color-primary);
-}
-.btn-primary:hover {
-  background: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
-  box-shadow: var(--shadow-sm);
-}
-.btn-outline {
-  background: transparent;
-  color: var(--color-text);
-  border-color: var(--color-border);
-}
-.btn-outline:hover {
-  background: var(--color-surface-offset);
-  border-color: var(--color-text-muted);
-}
-.btn-sm { padding: var(--space-1) var(--space-3); font-size: var(--text-xs); }
-
-/* ── KPI Cards ─────────────────────────────────────── */
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-6);
-}
-
-.kpi-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--transition), transform var(--transition);
-}
-.kpi-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
-
-.kpi-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-3);
-}
-.kpi-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.kpi-icon {
-  width: 36px; height: 36px;
-  border-radius: var(--radius-md);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-.kpi-icon.blue  { background: var(--color-primary-highlight); color: var(--color-primary); }
-.kpi-icon.green { background: var(--color-success-highlight); color: var(--color-success); }
-.kpi-icon.amber { background: var(--color-warning-highlight); color: var(--color-warning); }
-.kpi-icon.gold  { background: var(--color-gold-highlight);    color: var(--color-gold); }
-
-.kpi-value {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-}
-.kpi-change {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  margin-top: var(--space-1);
-}
-.kpi-change.up   { color: var(--color-success); }
-.kpi-change.down { color: var(--color-error); }
-
-/* ── Cards ─────────────────────────────────────────── */
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-}
-.card-header {
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-divider);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-}
-.card-title { font-size: var(--text-base); font-weight: 600; color: var(--color-text); }
-.card-body  { padding: var(--space-6); }
-.card-body-flush { padding: 0; }
-
-/* ── Charts grid ────────────────────────────────────── */
-.charts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
-  gap: var(--space-6);
-  margin-bottom: var(--space-6);
-}
-.chart-container { position: relative; width: 100%; }
-.chart-container canvas { max-height: 280px; }
-
-/* ── Table ──────────────────────────────────────────── */
-.table-wrapper {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-.data-table { width: 100%; min-width: 600px; }
-
-.data-table th {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface-2);
-  border-bottom: 1px solid var(--color-divider);
-  white-space: nowrap;
-  text-align: left;
-}
-.data-table td {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-divider);
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-  vertical-align: middle;
-}
-.data-table tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover { background: var(--color-surface-offset); }
-
-/* ── Badges ─────────────────────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  white-space: nowrap;
-}
-.badge-blue  { background: var(--color-primary-highlight); color: var(--color-primary); }
-.badge-green { background: var(--color-success-highlight); color: var(--color-success); }
-.badge-amber { background: var(--color-warning-highlight); color: var(--color-warning); }
-.badge-red   { background: var(--color-error-highlight);   color: var(--color-error); }
-.badge-gold  { background: var(--color-gold-highlight);    color: var(--color-gold); }
-.badge-gray  { background: var(--color-surface-offset);    color: var(--color-text-muted); }
-
-/* Оценки */
-.grade-5 { background: #dcfce7; color: #15803d; }
-.grade-4 { background: #dbeafe; color: #1d4ed8; }
-.grade-3 { background: #fef9c3; color: #a16207; }
-.grade-2 { background: #fee2e2; color: #dc2626; }
-
-/* ── Progress bar ───────────────────────────────────── */
-.progress-bar-wrap {
-  background: var(--color-surface-offset);
-  border-radius: var(--radius-full);
-  height: 6px;
-  overflow: hidden;
-}
-.progress-bar {
-  height: 100%;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
-  transition: width 0.6s ease;
-}
-.progress-bar.green { background: var(--color-success); }
-.progress-bar.amber { background: var(--color-warning); }
-.progress-bar.red   { background: var(--color-error); }
-
-/* ── Filters / Forms ────────────────────────────────── */
-.filters-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-  align-items: flex-end;
-}
-.form-group { display: flex; flex-direction: column; gap: var(--space-1); }
-.form-label { font-size: var(--text-xs); font-weight: 500; color: var(--color-text-muted); }
-.form-control {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  min-width: 160px;
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-.form-control:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 15%, transparent);
-}
-
-/* ── Summary strip ──────────────────────────────────── */
-.summary-strip {
-  display: flex;
-  gap: var(--space-6);
-  flex-wrap: wrap;
-  padding: var(--space-4) var(--space-6);
-  background: var(--color-surface-2);
-  border-bottom: 1px solid var(--color-divider);
-}
-.summary-item { display: flex; flex-direction: column; gap: 2px; }
-.summary-value {
-  font-weight: 700;
-  font-size: var(--text-base);
-  font-variant-numeric: tabular-nums;
-}
-.summary-label { font-size: var(--text-xs); color: var(--color-text-muted); }
-
-/* ── Empty cell ─────────────────────────────────────── */
-.empty-cell {
-  text-align: center !important;
-  padding: var(--space-8) var(--space-4) !important;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-/* ── Page footer ────────────────────────────────────── */
-.page-footer {
-  padding: var(--space-4) var(--space-6);
-  border-top: 1px solid var(--color-divider);
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--color-text-faint);
-  background: var(--color-surface);
-}
-
-/* ── Responsive ─────────────────────────────────────── */
-@media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.mobile-open { transform: translateX(0); box-shadow: var(--shadow-lg); }
-  .main-wrapper { margin-left: 0 !important; }
-  .mobile-menu-btn { display: flex; }
-  .topbar { padding: 0 var(--space-4); }
-  .page-content { padding: var(--space-4); }
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .charts-grid { grid-template-columns: 1fr; }
-  .academic-year-badge { display: none; }
-  .summary-strip { gap: var(--space-4); padding: var(--space-4); }
-}
-
-@media (max-width: 480px) {
-  .kpi-grid { grid-template-columns: 1fr; }
-  .page-header { flex-direction: column; }
-  .filters-bar { flex-direction: column; align-items: stretch; }
-  .form-control { min-width: unset; width: 100%; }
-}
-
-@media print {
-  .sidebar, .topbar, .page-footer,
-  .page-actions, .filters-bar, .theme-toggle { display: none !important; }
-  .main-wrapper { margin-left: 0 !important; }
-  .page-content { padding: 0; }
-  .card { box-shadow: none !important; border: 1px solid #ccc !important; border-radius: 0 !important; margin-bottom: 16px; }
-  .kpi-grid { grid-template-columns: repeat(4, 1fr); }
-  .charts-grid { grid-template-columns: repeat(2, 1fr); }
-  body { background: white; }
-}
-
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Аналитика и отчётность — СВГТК Портал</title>
+<link rel="stylesheet" href="assets/css/analytics.css">
+<script>
+(function(){
+  var t = localStorage.getItem('theme') || localStorage.getItem('svgtkAnalyticsTheme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
 </head>
 <body>
-
 <?php
-$activeModule = 'analytics'; // achievements / analytics / hr / umr / qr
-$moduleTitle  = 'Аналитика'; // Достижения / Аналитика / HR-аналитика / УМР / QR-посещаемость
+$activeModule = 'analytics';
+$moduleTitle = 'Аналитика';
 require_once __DIR__ . '/../includes/portal_sidebar.php';
 ?>
-
 <div class="main-wrapper" id="mainWrapper">
-  <header class="topbar">
+  <header class="topbar no-print">
     <div class="topbar-left">
       <div class="breadcrumb">
-        <span class="breadcrumb-root"><a href="../" style="color:inherit">СВГТК</a></span>
+        <span class="breadcrumb-root"><a href="/">СВГТК</a></span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         <span class="breadcrumb-current">Аналитика</span>
       </div>
     </div>
     <div class="topbar-right">
-      <?php if($isLoggedIn): ?>
-      <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?></div>
-      <?php if($isAdmin): ?>
-      <span style="width:1px;height:20px;background:var(--color-divider)"></span>
-      <a href="../requests/admin_dashboard.php" class="btn btn-outline btn-sm">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        В админку
-      </a>
-      <?php endif ?>
-      <?php endif ?>
-      <button class="theme-toggle" id="themeToggle">
+      <button class="theme-toggle" id="themeToggle" type="button" title="Сменить тему">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <div class="user-avatar" title="<?= h($userName ?: $roleTitle) ?>"><?= h(mb_substr($userName ?: $roleTitle,0,1,'UTF-8')) ?></div>
+      <div class="user-meta"><b><?= h($userName ?: $roleTitle) ?></b><br><span><?= h($roleTitle) ?></span></div>
+      <a class="logout-link" href="/requests/logout.php" title="Выйти">↪</a>
     </div>
   </header>
 
-  <main class="page-content" style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - var(--topbar-height))">
-    <div style="text-align:center;max-width:480px">
-      <div style="width:80px;height:80px;border-radius:20px;background:#0284c720;display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+  <main class="page-content">
+    <div class="analytics-wrap" id="printArea">
+      <div class="page-header-block">
+        <div>
+          <h1>Аналитика и отчётность</h1>
+          <p>Модуль информационной системы «СВГТК Портал»</p>
+        </div>
       </div>
-      <h1 style="font-family:var(--font-display);font-size:1.75rem;font-weight:700;color:var(--color-text);margin-bottom:.75rem">Аналитика</h1>
-      <p style="font-size:1rem;color:var(--color-text-muted);margin-bottom:.5rem">Тема 7 · В разработке</p>
-      <p style="font-size:.9375rem;color:var(--color-text-faint);margin-bottom:2rem;line-height:1.6">
-        Этот модуль ещё не разработан.<br>
-        Студент: замени <code style="background:var(--color-surface-offset);padding:2px 6px;border-radius:4px;font-size:.875rem">analytics/index.php</code> своим кодом.
-      </p>
-      <div style="display:flex;gap:.75rem;justify-content:center;flex-wrap:wrap">
-        <?php if($isAdmin): ?>
-        <a href="../requests/admin_dashboard.php" class="btn btn-primary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          Назад в админку
-        </a>
+
+      <div class="tabs no-print">
+        <?php foreach (['dashboard'=>'Dashboard','grades'=>'Успеваемость','attendance'=>'Посещаемость','graduates'=>'Выпуск','report'=>'Итоговый отчёт','help'=>'Справка'] as $key=>$title): ?>
+          <a class="<?= $section===$key?'active':'' ?>" href="?section=<?= h($key) ?>"><?= h($title) ?></a>
+        <?php endforeach; ?>
+      </div>
+
+      <?php if (!$allowedGroupIds): ?>
+        <div class="card"><h3>Нет доступных групп</h3><p class="muted">Для текущего пользователя не найдены группы. Проверьте роль, куратора группы или права заведующего отделением.</p></div>
+      <?php else: ?>
+
+      <div class="grid kpi">
+        <div class="card kpi-card"><div class="muted">Студенты</div><div class="num"><?= (int)$totalStudents ?></div><div class="muted">по доступным группам</div></div>
+        <div class="card kpi-card"><div class="muted">Средний балл</div><div class="num"><?= $avgGrade !== null ? h($avgGrade) : '—' ?></div><div class="muted"><?= $hasGrades ? 'по ведомостям' : 'таблица оценок не найдена' ?></div></div>
+        <div class="card kpi-card"><div class="muted">Посещаемость</div><div class="num"><?= $attendanceAvg !== null ? h($attendanceAvg).'%' : '—' ?></div><div class="muted"><?= h($periodTitles[$period] ?? '') ?></div></div>
+        <div class="card kpi-card"><div class="muted">Выпускники</div><div class="num"><?= (int)$graduates ?></div><div class="muted">по выпускным группам</div></div>
+      </div>
+
+      <?php if ($section !== 'help'): ?>
+      <form method="get" class="card filter-card no-print">
+        <input type="hidden" name="section" value="<?= h($section) ?>">
+        <div class="filters">
+          <div class="field"><label>Критерий</label><select name="criterion" id="criterion">
+            <option value="all" <?= $criterion==='all'?'selected':'' ?>>Все данные</option>
+            <option value="status" <?= $criterion==='status'?'selected':'' ?>>Статус группы</option>
+            <option value="course" <?= $criterion==='course'?'selected':'' ?>>Курс</option>
+            <option value="grade" <?= $criterion==='grade'?'selected':'' ?>>Успеваемость</option>
+            <option value="attendance" <?= $criterion==='attendance'?'selected':'' ?>>Посещаемость</option>
+            <option value="graduates" <?= $criterion==='graduates'?'selected':'' ?>>Выпуск</option>
+          </select></div>
+          <div class="field"><label>Подвыбор</label><select name="sub">
+            <option value="all">Все</option>
+            <option value="Стабильная" <?= $sub==='Стабильная'?'selected':'' ?>>Стабильные группы</option>
+            <option value="Требует контроля" <?= $sub==='Требует контроля'?'selected':'' ?>>Требуют контроля</option>
+            <option value="Проблемная" <?= $sub==='Проблемная'?'selected':'' ?>>Проблемные</option>
+            <option value="1 курс" <?= $sub==='1 курс'?'selected':'' ?>>1 курс</option>
+            <option value="2 курс" <?= $sub==='2 курс'?'selected':'' ?>>2 курс</option>
+            <option value="3 курс" <?= $sub==='3 курс'?'selected':'' ?>>3 курс</option>
+            <option value="4 курс" <?= $sub==='4 курс'?'selected':'' ?>>4 курс</option>
+            <option value="Выпускники" <?= $sub==='Выпускники'?'selected':'' ?>>Выпускники</option>
+            <option value="excellent" <?= $sub==='excellent'?'selected':'' ?>>Отличные показатели</option>
+            <option value="good" <?= $sub==='good'?'selected':'' ?>>Хорошие показатели</option>
+            <option value="risk" <?= $sub==='risk'?'selected':'' ?>>Зона риска</option>
+            <option value="high" <?= $sub==='high'?'selected':'' ?>>Высокая посещаемость</option>
+            <option value="control" <?= $sub==='control'?'selected':'' ?>>Контроль посещаемости</option>
+            <option value="low" <?= $sub==='low'?'selected':'' ?>>Низкая посещаемость</option>
+          </select></div>
+          <div class="field"><label>Группа</label><select name="group_id">
+            <option value="0">Все группы</option>
+            <?php foreach($groups as $g): ?><option value="<?= (int)$g['id'] ?>" <?= $groupId===(int)$g['id']?'selected':'' ?>><?= h($g['name']) ?></option><?php endforeach; ?>
+          </select></div>
+          <div class="field"><label>Период</label><select name="period">
+            <option value="week" <?= $period==='week'?'selected':'' ?>>Неделя</option>
+            <option value="month" <?= $period==='month'?'selected':'' ?>>Месяц</option>
+            <option value="semester" <?= $period==='semester'?'selected':'' ?>>Семестр</option>
+            <option value="year" <?= $period==='year'?'selected':'' ?>>Год</option>
+            <option value="custom" <?= $period==='custom'?'selected':'' ?>>Свой срок</option>
+          </select></div>
+          <div class="field"><label>С</label><input type="date" name="date_from" value="<?= h($dateFrom) ?>"></div>
+          <div class="field"><label>По</label><input type="date" name="date_to" value="<?= h($dateTo) ?>"></div>
+        </div>
+
+        <?php if (in_array($section, ['grades','attendance','report'], true)): ?>
+        <div class="filters top-filters">
+          <div class="field"><label>Топ-выборка</label><select name="top_mode">
+            <option value="attendance_low" <?= $topMode==='attendance_low'?'selected':'' ?>>Топ прогульщиков</option>
+            <option value="attendance_high" <?= $topMode==='attendance_high'?'selected':'' ?>>Топ по посещаемости</option>
+            <option value="grades_best" <?= $topMode==='grades_best'?'selected':'' ?>>Топ отличников</option>
+            <option value="grades_bad" <?= $topMode==='grades_bad'?'selected':'' ?>>Топ по низким оценкам</option>
+          </select></div>
+          <div class="field"><label>Количество</label><select name="top_n" id="topN">
+            <option value="3" <?= $topNMode==='3'?'selected':'' ?>>Топ 3</option>
+            <option value="5" <?= $topNMode==='5'?'selected':'' ?>>Топ 5</option>
+            <option value="10" <?= $topNMode==='10'?'selected':'' ?>>Топ 10</option>
+            <option value="custom" <?= $topNMode==='custom'?'selected':'' ?>>Свой вариант</option>
+          </select></div>
+          <div class="field"><label>Своё число</label><input type="number" min="1" max="100" name="top_custom" value="<?= (int)$topCustom ?>"></div>
+          <div class="field action-field"><button class="btn" type="submit">Показать выборку</button></div>
+          <div class="field action-field"><button class="btn light" type="button" onclick="window.print()">Печать / PDF</button></div>
+          <div class="field action-field"><button class="btn light" type="button" onclick="exportTable()">Excel</button></div>
+        </div>
         <?php else: ?>
-        <a href="../" class="btn btn-primary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          На главную
-        </a>
-        <?php endif ?>
-      </div>
+          <div class="filter-actions"><button class="btn" type="submit">Показать выборку</button> <button class="btn light" type="button" onclick="window.print()">Печать / PDF</button></div>
+        <?php endif; ?>
+      </form>
+      <?php endif; ?>
+
+      <?php if ($section === 'dashboard'): ?>
+        <div class="grid three chart-grid">
+          <div class="card chart-card"><h3>Распределение оценок</h3><p class="muted">Оценки 5, 4, 3 и 2 за выбранный период</p><canvas id="gradesDonut" height="230"></canvas></div>
+          <div class="card chart-card"><h3>Средний балл по курсам</h3><p class="muted">Сводка по учебным группам</p><canvas id="courseGradeChart" height="230"></canvas></div>
+          <div class="card chart-card"><h3>Посещаемость по курсам</h3><p class="muted">Средний процент посещаемости</p><canvas id="courseAttendanceChart" height="230"></canvas></div>
+        </div>
+        <div class="grid two dashboard-grid">
+          <div class="card"><h3>Состояние групп</h3>
+            <?php $statusCounts=['Стабильная'=>0,'Требует контроля'=>0,'Проблемная'=>0]; foreach($groupRows as $r){$statusCounts[$r['status']]++;} ?>
+            <?php foreach($statusCounts as $name=>$cnt): $p=count($groupRows)?round($cnt/count($groupRows)*100):0; ?>
+              <p><b><?= h($name) ?></b> <span class="muted"><?= $cnt ?> групп</span></p><div class="bar"><div class="fill" style="width:<?= $p ?>%"></div></div>
+            <?php endforeach; ?>
+          </div>
+          <div class="card"><h3>Краткий вывод</h3>
+            <p>Модуль собирает данные из учебного блока, посещаемости и ведомостей оценок. Администратор видит общую картину по колледжу, преподаватель — только доступные группы.</p>
+            <p class="muted">Текущий период анализа: <?= h($dateFrom) ?> — <?= h($dateTo) ?>.</p>
+          </div>
+        </div>
+      <?php endif; ?>
+
+      <?php if (in_array($section, ['grades','attendance','report'], true)): ?>
+        <div class="card top-card">
+          <h3>
+            <?php if ($topMode==='attendance_low'): ?>Топ прогульщиков<?php elseif($topMode==='attendance_high'): ?>Топ по посещаемости<?php elseif($topMode==='grades_best'): ?>Топ отличников<?php else: ?>Топ студентов по низким оценкам<?php endif; ?>
+          </h3>
+          <?php if (!$topRows): ?><p class="muted">Нет данных для выбранной топ-выборки.</p><?php else: ?>
+          <div class="toplist">
+            <?php foreach($topRows as $i=>$r): ?>
+              <div class="topitem"><div><div class="rank">Топ <?= $i+1 ?></div><b><?= h($r['full_name']) ?></b><br><span class="muted"><?= h($r['group_name']) ?></span></div><div><b><?= h($r['value_title']) ?></b></div></div>
+            <?php endforeach; ?>
+          </div>
+          <?php endif; ?>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($section !== 'help'): ?>
+        <div class="card table-card">
+          <h3><?= $section==='report' ? 'Итоговый отчёт по выбранным критериям' : 'Данные по учебным группам' ?></h3>
+          <div class="table-wrap">
+          <table id="reportTable">
+            <thead><tr><th>Группа</th><th>Курс</th><th>Студентов</th><th>Средний балл</th><th>Посещаемость</th><th>Выпускники</th><th>Статус</th></tr></thead>
+            <tbody>
+              <?php foreach($filteredRows as $r): ?>
+              <tr>
+                <td><?= h($r['name']) ?></td><td><?= h($r['course']) ?></td><td><?= (int)$r['students_count'] ?></td>
+                <td><?= $r['avg_grade']!==null?h($r['avg_grade']):'—' ?></td><td><?= $r['attendance']!==null?h($r['attendance']).'%':'—' ?></td><td><?= (int)$r['graduates'] ?></td>
+                <td><span class="badge <?= $r['status']==='Проблемная'?'bad':($r['status']==='Требует контроля'?'warn':'good') ?>"><?= h($r['status']) ?></span></td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+          </div>
+          <?php if (!$filteredRows): ?><p class="muted">По выбранному критерию данные не найдены.</p><?php endif; ?>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($section === 'help'): ?>
+        <div class="card help"><h3>Справка по модулю</h3>
+          <details><summary>Запуск модуля</summary><p>Модуль открывается из основного меню «СВГТК Портал». Пользователь должен быть авторизован в портале.</p></details>
+          <details><summary>Dashboard</summary><p>Показывает ключевые показатели: количество студентов, средний балл, посещаемость, выпускные группы и графики.</p></details>
+          <details><summary>Критерии и выборка</summary><p>Фильтры позволяют выбрать статус группы, курс, успеваемость, посещаемость, выпуск и конкретную группу.</p></details>
+          <details><summary>Топы</summary><p>Доступны топ прогульщиков, топ по посещаемости, топ отличников и топ студентов с низкими оценками. Можно выбрать Топ 3, 5, 10 или своё число.</p></details>
+          <details><summary>Печать и Excel</summary><p>Печать и экспорт выполняются по текущей выбранной выборке, а не по всем данным сразу.</p></details>
+        </div>
+      <?php endif; ?>
+
+      <?php endif; ?>
     </div>
   </main>
+
+  <footer class="page-footer no-print">
+    <span>СВГТК Портал · Модуль «Аналитика и отчётность»</span>
+    <span><?= date('Y') ?></span>
+  </footer>
 </div>
 
-<!-- sidebar + theme: обрабатывает portal_sidebar.php -->
+<script>
+window.analyticsChartData = <?= json_encode([
+  'gradeDistribution' => $gradeDistribution,
+  'courseLabels' => $courseLabels,
+  'courseGradeData' => $courseGradeData,
+  'courseAttendanceData' => $courseAttendanceData,
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+</script>
+<script src="assets/js/analytics.js"></script>
 </body>
 </html>
