@@ -432,6 +432,6 @@ unset($_SESSION['flash']);
 
   </main>
 </div>
-
+<script src="../../js/umr.js"></script>
 </body>
 </html>
