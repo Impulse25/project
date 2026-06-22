@@ -286,7 +286,7 @@ try {
             redirectBack('Нет доступа к добавлению записи для этого студента', 'error');
         }
 
-        $allowedStatus = ['employed', 'unemployed', 'studying', 'decree', 'military', 'unknown'];
+        $allowedStatus = ['employed', 'unemployed', 'studying', 'decree', 'military', 'relocation', 'other', 'unknown'];
         $allowedType   = ['full_time', 'part_time', 'contract', 'self_employed', 'other'];
 
         if (!in_array($status, $allowedStatus, true)) {

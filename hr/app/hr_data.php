@@ -4,7 +4,7 @@
 $currentYear = (int)date('Y');
 $archiveLimitYear = hr_archive_limit_year($currentYear);
 
-$allowedViews = hr_allowed_views_for_role($userRole);
+$allowedViews = hr_allowed_views_for_role($userRole, $hrScope ?? []);
 if (!$allowedViews) {
     http_response_code(403);
     die('Нет доступа к HR-модулю');
@@ -16,7 +16,7 @@ if ($requestedView === 'previous') {
 }
 $hrView = in_array($requestedView, $allowedViews, true)
     ? $requestedView
-    : hr_default_view_for_role($userRole);
+    : hr_default_view_for_role($userRole, $hrScope ?? []);
 
 // ── Фильтры из GET ────────────────────────────────────────────
 $fGroup      = isset($_GET['group_id'])      && $_GET['group_id']      !== '' ? (int)$_GET['group_id']      : null;
@@ -28,7 +28,7 @@ $fSearch     = isset($_GET['search'])        ? trim($_GET['search'])          : 
 
 // Директор работает только с отделениями. Чтобы интерфейс не смешивал уровни,
 // прямой group_id для него игнорируется.
-if ($isDirector) {
+if ($isDirector || $isHrDepartmentHead || $isHrPracticeHead) {
     $fGroup = null;
 }
 
@@ -39,16 +39,17 @@ $currentPage = isset($_GET['page']) && (int)$_GET['page'] > 0 ? (int)$_GET['page
 $gradExpr = hr_group_grad_expr('g');
 $groupStateExpr = hr_group_state_sql('g', $currentYear);
 $departmentExpr = 'COALESCE(g.department_id, sp.department_id)';
+$isRegularTeacher = $isTeacher && !$isHrDepartmentHead && !$isHrPracticeHead;
 
 // ── Вкладки по роли ───────────────────────────────────────────
 $viewTabs = [];
-if ($isTeacher) {
+if ($isRegularTeacher) {
     $viewTabs = [
         ['key' => 'group',    'label' => 'Группа',                 'hint' => 'Группы преподавателя'],
         ['key' => 'graduates', 'label' => 'Выпускники',         'hint' => 'Выпуски за последние 5 лет'],
         ['key' => 'archive',  'label' => 'Архив выпускников',    'hint' => 'Выпускники 5 и более лет назад'],
     ];
-} elseif ($isDirector) {
+} elseif ($isDirector || $isHrDepartmentHead || $isHrPracticeHead) {
     $viewTabs = [
         ['key' => 'departments', 'label' => 'Отделения', 'hint' => 'Сводная статистика по отделениям'],
     ];
@@ -72,7 +73,7 @@ $pageContextTitle = match ($hrView) {
 };
 
 // ── Справочники для фильтров ──────────────────────────────────
-[$scopeGroupConds, $scopeGroupParams] = hr_scope_sql('g', $userRole, $userId, $hrView, $currentYear);
+[$scopeGroupConds, $scopeGroupParams] = hr_scope_sql('g', $userRole, $userId, $hrView, $currentYear, $hrScope ?? []);
 $scopeGroupWhere = $scopeGroupConds ? implode(' AND ', $scopeGroupConds) : '1=1';
 
 $departments = $pdo->query("
@@ -80,6 +81,15 @@ $departments = $pdo->query("
     FROM departments
     ORDER BY department_name
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+if ($isHrDepartmentHead && !empty($hrScope['department_id'])) {
+    $headDepartmentId = (int)$hrScope['department_id'];
+    $departments = array_values(array_filter(
+        $departments,
+        static fn(array $dept): bool => (int)$dept['id'] === $headDepartmentId
+    ));
+    $fDepartment = $headDepartmentId;
+}
 
 $selectedDepartmentName = null;
 foreach ($departments as $deptRow) {
@@ -215,6 +225,8 @@ $statsSql = "
         SUM(CASE WHEN e.status = 'studying' THEN 1 ELSE 0 END) AS studying,
         SUM(CASE WHEN e.status = 'decree' THEN 1 ELSE 0 END) AS decree,
         SUM(CASE WHEN e.status = 'military' THEN 1 ELSE 0 END) AS military,
+        SUM(CASE WHEN e.status = 'relocation' THEN 1 ELSE 0 END) AS relocation,
+        SUM(CASE WHEN e.status = 'other' THEN 1 ELSE 0 END) AS other_status,
         SUM(CASE WHEN e.status = 'unknown' THEN 1 ELSE 0 END) AS unknown_status,
         SUM(CASE WHEN e.id IS NULL THEN 1 ELSE 0 END) AS no_data,
         SUM(CASE WHEN e.status = 'employed' AND COALESCE(e.is_by_specialty, 0) = 1 THEN 1 ELSE 0 END) AS by_spec
@@ -230,6 +242,8 @@ $unemployed = (int)($stats['unemployed'] ?? 0);
 $studying   = (int)($stats['studying'] ?? 0);
 $decree     = (int)($stats['decree'] ?? 0);
 $military   = (int)($stats['military'] ?? 0);
+$relocation = (int)($stats['relocation'] ?? 0);
+$otherStatus = (int)($stats['other_status'] ?? 0);
 $unknown    = (int)($stats['unknown_status'] ?? 0);
 $noData     = (int)($stats['no_data'] ?? 0);
 $bySpec     = (int)($stats['by_spec'] ?? 0);
@@ -239,6 +253,8 @@ $unemployedRate = $total > 0 ? round($unemployed / $total * 100, 1) : 0;
 $studyingRate   = $total > 0 ? round($studying / $total * 100, 1) : 0;
 $decreeRate     = $total > 0 ? round($decree / $total * 100, 1) : 0;
 $militaryRate   = $total > 0 ? round($military / $total * 100, 1) : 0;
+$relocationRate = $total > 0 ? round($relocation / $total * 100, 1) : 0;
+$otherStatusRate = $total > 0 ? round($otherStatus / $total * 100, 1) : 0;
 $unknownRate    = $total > 0 ? round($unknown / $total * 100, 1) : 0;
 $noDataRate     = $total > 0 ? round($noData / $total * 100, 1) : 0;
 $bySpecRate     = $employed > 0 ? round($bySpec / $employed * 100, 1) : 0;
@@ -250,14 +266,63 @@ $statusSummaryCards = [
     ['label' => 'Продолжают учёбу',  'value' => $studying,   'rate' => $studyingRate,   'hint' => 'от выборки',        'icon' => 'primary'],
     ['label' => 'В декрете',         'value' => $decree,     'rate' => $decreeRate,     'hint' => 'от выборки',        'icon' => 'warning'],
     ['label' => 'Военная служба',    'value' => $military,   'rate' => $militaryRate,   'hint' => 'от выборки',        'icon' => 'muted'],
+    ['label' => 'Выезд на ПМЖ',      'value' => $relocation, 'rate' => $relocationRate, 'hint' => 'от выборки',        'icon' => 'muted'],
+    ['label' => 'Прочее',            'value' => $otherStatus,'rate' => $otherStatusRate,'hint' => 'от выборки',        'icon' => 'muted'],
     ['label' => 'Неизвестно',        'value' => $unknown,    'rate' => $unknownRate,    'hint' => 'от выборки',        'icon' => 'muted'],
     ['label' => 'Нет данных',        'value' => $noData,     'rate' => $noDataRate,     'hint' => 'требуют заполнения','icon' => 'muted'],
 ];
 
+$notBySpec = max(0, $employed - $bySpec);
+$notEmployedOrOther = max(0, $total - $employed);
+$hrChartData = [
+    'summary' => [
+        'title' => 'HR-статистика по выбранной выборке',
+        'labels' => [
+            'Трудоустроены',
+            'По специальности',
+            'Не по специальности',
+            'Не работают',
+            'Продолжают учёбу',
+            'В декрете',
+            'Военная служба',
+            'Выезд на ПМЖ',
+            'Прочее',
+            'Неизвестно',
+            'Нет данных',
+        ],
+        'values' => [
+            $employed,
+            $bySpec,
+            $notBySpec,
+            $unemployed,
+            $studying,
+            $decree,
+            $military,
+            $relocation,
+            $otherStatus,
+            $unknown,
+            $noData,
+        ],
+        'colors' => [
+            '#16a34a',
+            '#ca8a04',
+            '#1a56db',
+            '#dc2626',
+            '#3b82f6',
+            '#d97706',
+            '#64748b',
+            '#0f766e',
+            '#7c3aed',
+            '#94a3b8',
+            '#cbd5e1',
+        ],
+    ],
+];
+
 // ── Сводка по группам ────────────────────────────────────────
-[$roleGroupConds, $roleGroupParams] = hr_scope_sql('g', $userRole, $userId, 'all', $currentYear);
+[$roleGroupConds, $roleGroupParams] = hr_scope_sql('g', $userRole, $userId, 'all', $currentYear, $hrScope ?? []);
 // Для преподавателя hr_scope_sql('all') вернёт неархив. Нужна полная история по его кураторским группам.
-if ($isTeacher) {
+if ($isRegularTeacher) {
     $roleGroupConds = ['g.curator_id = ?'];
     $roleGroupParams = [$userId];
 }
@@ -329,19 +394,21 @@ $visibleGroupStats = array_values(array_filter($groupStatsAll, static function(a
 // ── Сводка по отделениям ─────────────────────────────────────
 $deptScopeConds = [];
 $deptScopeParams = [];
-if ($isTeacher) {
+if ($isRegularTeacher) {
     $deptScopeConds[] = 'g.curator_id = ?';
     $deptScopeParams[] = $userId;
+} elseif ($isHrDepartmentHead || $isHrPracticeHead) {
+    [$deptScopeConds, $deptScopeParams] = hr_scope_sql('g', $userRole, $userId, $hrView, $currentYear, $hrScope ?? []);
 }
-if ($hrView === 'archive') {
+if (!$isHrDepartmentHead && !$isHrPracticeHead && $hrView === 'archive') {
     $deptScopeConds[] = "$gradExpr <= ?";
     $deptScopeParams[] = $archiveLimitYear;
-} elseif ($hrView === 'graduates') {
+} elseif (!$isHrDepartmentHead && !$isHrPracticeHead && $hrView === 'graduates') {
     $deptScopeConds[] = "$gradExpr > ?";
     $deptScopeConds[] = "$gradExpr < ?";
     $deptScopeParams[] = $archiveLimitYear;
     $deptScopeParams[] = $currentYear;
-} elseif (in_array($hrView, ['group', 'groups'], true)) {
+} elseif (!$isHrDepartmentHead && !$isHrPracticeHead && in_array($hrView, ['group', 'groups'], true)) {
     $deptScopeConds[] = "($gradExpr >= ? OR g.year_started IS NULL OR g.course IS NULL)";
     $deptScopeParams[] = $currentYear;
 }
@@ -462,7 +529,7 @@ $newStudents = [];
 if ($canManageHrRecords) {
     $manageWhere = [];
     $manageParams = [];
-    if ($isTeacher) {
+    if ($isRegularTeacher) {
         $manageWhere[] = 'g.curator_id = ?';
         $manageParams[] = $userId;
         $manageWhere[] = "($gradExpr > ? OR g.year_started IS NULL OR g.course IS NULL)";
@@ -487,6 +554,6 @@ if ($canManageHrRecords) {
     $newStudents = $newStudentsStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$canShowGroupFilter = !$isDirector;
-$canShowDepartmentFilter = $isDirector || $isSystemAdmin;
+$canShowGroupFilter = !$isDirector && !$isHrDepartmentHead && !$isHrPracticeHead;
+$canShowDepartmentFilter = $isDirector || $isSystemAdmin || $isHrDepartmentHead || $isHrPracticeHead;
 $canShowRecordActions = $canManageHrRecords;

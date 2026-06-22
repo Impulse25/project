@@ -22,6 +22,7 @@
   'group' => $s['group_name'] ?? ''
 ], $newStudents), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?></script>
 <script type="application/json" id="hrDocsData"><?= json_encode($docsByEmployment ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?></script>
+<script type="application/json" id="hrChartData"><?= json_encode($hrChartData ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?></script>
 <script src="assets/js/hr.js"></script>
 </body>
 </html>

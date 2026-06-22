@@ -52,6 +52,8 @@ $currentUrl = $_SERVER['REQUEST_URI'] ?? 'index.php';
             <option value="studying">Продолжает учёбу</option>
             <option value="decree">В декрете</option>
             <option value="military">Военная служба</option>
+            <option value="relocation">Выезд на ПМЖ</option>
+            <option value="other">Прочее</option>
             <option value="unknown">Неизвестно</option>
           </select>
         </div>

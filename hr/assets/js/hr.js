@@ -1,6 +1,8 @@
 // ── Данные для поиска и просмотра документов ─────────────────
 let allNewStudents = [];
 let docsByEmployment = {};
+let hrChartData = {};
+let hrChartVisible = {};
 let selectedStudentId = null;
 let hrPageAbortController = null;
 let hrNavigationController = null;
@@ -51,6 +53,8 @@ function parseJsonScript(id, fallback) {
 function loadHrEmbeddedData() {
   allNewStudents = parseJsonScript('hrNewStudentsData', []);
   docsByEmployment = parseJsonScript('hrDocsData', {});
+  hrChartData = parseJsonScript('hrChartData', {});
+  hrChartVisible = {};
 }
 
 function documentLabelsForStatus(status) {
@@ -273,6 +277,7 @@ function applyAjaxHtml(html, targetUrl, pushHistory = true) {
   replaceElementById(nextDoc, 'toastContainer');
   replaceElementById(nextDoc, 'hrNewStudentsData');
   replaceElementById(nextDoc, 'hrDocsData');
+  replaceElementById(nextDoc, 'hrChartData');
 
   if (pushHistory) {
     window.history.pushState({}, '', getBrowserUrl(targetUrl));
@@ -560,6 +565,503 @@ function updateSelectedFilesInfo() {
     : '';
 }
 
+function drawHrPieChart(ctx, chart, type, width, height, showPercent) {
+  const values = (chart.values || []).map(v => Math.max(0, Number(v) || 0));
+  const labels = chart.labels || [];
+  const colors = chart.colors || [];
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) * 0.36;
+  let start = -Math.PI / 2;
+
+  if (total <= 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '16px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Нет данных для диаграммы', cx, cy);
+    return;
+  }
+
+  const segments = [];
+  values.forEach((value, index) => {
+    const angle = (value / total) * Math.PI * 2;
+    const end = start + angle;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.closePath();
+    ctx.fillStyle = colors[index] || '#1a56db';
+    ctx.fill();
+    segments.push({ start, end, value, color: colors[index] || '#1a56db' });
+    start = end;
+  });
+
+  if (type === 'doughnut') {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.58, 0, Math.PI * 2);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-surface').trim() || '#fff';
+    ctx.fill();
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#1e293b';
+    ctx.font = '700 26px Montserrat, Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(total), cx, cy + 8);
+  }
+
+  if (showPercent) {
+    ctx.font = '700 12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    segments.forEach(segment => {
+      if (segment.value <= 0) return;
+      const mid = (segment.start + segment.end) / 2;
+      const labelRadius = type === 'doughnut' ? radius * 0.8 : radius * 0.68;
+      const x = cx + Math.cos(mid) * labelRadius;
+      const y = cy + Math.sin(mid) * labelRadius;
+      const percent = Math.round(segment.value / total * 1000) / 10;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(15,23,42,.35)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(percent + '%', x, y + 4);
+      ctx.fillText(percent + '%', x, y + 4);
+    });
+  }
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#64748b';
+  ctx.font = '13px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(chart.title || '', cx, 24);
+}
+
+function drawHrBarChart(ctx, chart, width, height, showPercent) {
+  const values = (chart.values || []).map(v => Math.max(0, Number(v) || 0));
+  const labels = chart.labels || [];
+  const colors = chart.colors || [];
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const max = Math.max(1, ...values);
+  const pad = { top: 42, right: 24, bottom: 72, left: 44 };
+  const chartWidth = width - pad.left - pad.right;
+  const chartHeight = height - pad.top - pad.bottom;
+  const gap = 20;
+  const barWidth = Math.max(28, (chartWidth - gap * Math.max(0, values.length - 1)) / Math.max(1, values.length));
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#64748b';
+  ctx.font = '13px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(chart.title || '', width / 2, 24);
+
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() || '#cbd5e1';
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + chartHeight);
+  ctx.lineTo(width - pad.right, pad.top + chartHeight);
+  ctx.stroke();
+
+  values.forEach((value, index) => {
+    const x = pad.left + index * (barWidth + gap) + 12;
+    const h = (value / max) * chartHeight;
+    const y = pad.top + chartHeight - h;
+    ctx.fillStyle = colors[index] || '#1a56db';
+    ctx.fillRect(x, y, barWidth - 24, h);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#1e293b';
+    ctx.font = '700 14px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const valueLabel = showPercent && total > 0
+      ? `${value} · ${Math.round(value / total * 1000) / 10}%`
+      : String(value);
+    ctx.fillText(valueLabel, x + (barWidth - 24) / 2, y - 8);
+    ctx.font = '12px Inter, sans-serif';
+    wrapCanvasLabel(ctx, labels[index] || '', x + (barWidth - 24) / 2, pad.top + chartHeight + 20, Math.min(120, barWidth));
+  });
+}
+
+function drawHrLineChart(ctx, chart, width, height, showPercent, graphType = 'line') {
+  const values = (chart.values || []).map(v => Math.max(0, Number(v) || 0));
+  const labels = chart.labels || [];
+  const colors = chart.colors || [];
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const max = Math.max(1, ...values);
+  const pad = { top: 42, right: 28, bottom: 76, left: 48 };
+  const chartWidth = width - pad.left - pad.right;
+  const chartHeight = height - pad.top - pad.bottom;
+  const step = values.length > 1 ? chartWidth / (values.length - 1) : 0;
+  const points = values.map((value, index) => ({
+    x: values.length > 1 ? pad.left + index * step : pad.left + chartWidth / 2,
+    y: pad.top + chartHeight - (value / max) * chartHeight,
+    value,
+    label: labels[index] || '',
+    color: colors[index] || '#1a56db',
+  }));
+  const safeGraphType = ['line', 'smooth', 'area', 'step'].includes(graphType) ? graphType : 'line';
+
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#64748b';
+  ctx.font = '13px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(chart.title || '', width / 2, 24);
+
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() || '#cbd5e1';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + chartHeight);
+  ctx.lineTo(width - pad.right, pad.top + chartHeight);
+  ctx.stroke();
+
+  if (safeGraphType === 'area' && points.length > 0) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, pad.top + chartHeight);
+    points.forEach((point, index) => {
+      if (index === 0) {
+        ctx.lineTo(point.x, point.y);
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    ctx.lineTo(points[points.length - 1].x, pad.top + chartHeight);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(26,86,219,.16)';
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = '#1a56db';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  if (safeGraphType === 'smooth' && points.length > 1) {
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const previous = points[i - 1];
+      const current = points[i];
+      const midX = (previous.x + current.x) / 2;
+      ctx.bezierCurveTo(midX, previous.y, midX, current.y, current.x, current.y);
+    }
+  } else if (safeGraphType === 'step' && points.length > 1) {
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const previous = points[i - 1];
+      const current = points[i];
+      const midX = (previous.x + current.x) / 2;
+      ctx.lineTo(midX, previous.y);
+      ctx.lineTo(midX, current.y);
+      ctx.lineTo(current.x, current.y);
+    }
+  } else {
+    points.forEach((point, index) => {
+      if (index === 0) {
+        ctx.moveTo(point.x, point.y);
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+  }
+  ctx.stroke();
+
+  points.forEach((point, index) => {
+    ctx.fillStyle = point.color;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#1e293b';
+    ctx.font = '700 13px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const valueLabel = showPercent && total > 0
+      ? `${point.value} · ${Math.round(point.value / total * 1000) / 10}%`
+      : String(point.value);
+    ctx.fillText(valueLabel, point.x, point.y - 10);
+    ctx.font = '12px Inter, sans-serif';
+    wrapCanvasLabel(ctx, point.label, point.x, pad.top + chartHeight + 20, Math.min(120, values.length > 1 ? step : 140));
+  });
+}
+
+function wrapCanvasLabel(ctx, text, x, y, maxWidth) {
+  const words = String(text).split(' ');
+  let line = '';
+  let offset = 0;
+
+  words.forEach((word, index) => {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y + offset);
+      line = word;
+      offset += 15;
+    } else {
+      line = test;
+    }
+    if (index === words.length - 1 && line) {
+      ctx.fillText(line, x, y + offset);
+    }
+  });
+}
+
+function ensureHrChartVisibility(metric, chart) {
+  const count = (chart.labels || []).length;
+  if (!hrChartVisible[metric] || hrChartVisible[metric].length !== count) {
+    hrChartVisible[metric] = Array.from({ length: count }, () => true);
+  }
+  if (!hrChartVisible[metric].some(Boolean) && count > 0) {
+    hrChartVisible[metric][0] = true;
+  }
+}
+
+function selectedHrChart(chart, metric) {
+  ensureHrChartVisibility(metric, chart);
+  const visible = hrChartVisible[metric] || [];
+  const selected = {
+    title: chart.title || '',
+    labels: [],
+    values: [],
+    colors: [],
+  };
+
+  (chart.labels || []).forEach((label, index) => {
+    if (!visible[index]) return;
+    selected.labels.push(label);
+    selected.values.push((chart.values || [])[index] || 0);
+    selected.colors.push((chart.colors || [])[index] || '#1a56db');
+  });
+
+  return selected;
+}
+
+function renderHrChartChecks(metric, chart) {
+  const checks = document.getElementById('hrChartChecks');
+  if (!checks) return;
+
+  ensureHrChartVisibility(metric, chart);
+  checks.innerHTML = (chart.labels || []).map((label, index) => {
+    const checked = hrChartVisible[metric][index] ? 'checked' : '';
+    const color = (chart.colors || [])[index] || '#1a56db';
+    return `<label class="hr-chart-check">
+      <input type="checkbox" data-chart-index="${index}" ${checked}>
+      <span class="hr-chart-check-color" style="background:${escapeHtml(color)}"></span>
+      <span>${escapeHtml(label)}</span>
+    </label>`;
+  }).join('');
+}
+
+function selectedHrChartIndexes(metric, chart) {
+  ensureHrChartVisibility(metric, chart);
+  return (hrChartVisible[metric] || [])
+    .map((isVisible, index) => isVisible ? index : null)
+    .filter(index => index !== null);
+}
+
+function hrExportVisualMode() {
+  const chart = !!document.getElementById('hrExportChart')?.checked;
+  const graph = !!document.getElementById('hrExportGraph')?.checked;
+  if (chart && graph) return 'both';
+  if (chart) return 'chart';
+  if (graph) return 'graph';
+  return 'none';
+}
+
+function syncHrGraphTypeControl() {
+  const exportGraph = !!document.getElementById('hrExportGraph')?.checked;
+  const graphTypeControl = document.getElementById('hrGraphTypeControl');
+  graphTypeControl?.classList.toggle('is-visible', exportGraph);
+}
+
+function updateHrExportLinks() {
+  const typeSelect = document.getElementById('hrChartType');
+  const graphTypeSelect = document.getElementById('hrGraphType');
+  const percentToggle = document.getElementById('hrChartPercent');
+  const metric = 'summary';
+  const chart = hrChartData[metric] || {};
+  const indexes = selectedHrChartIndexes(metric, chart);
+  const params = {
+    chart_type: typeSelect?.value || 'doughnut',
+    graph_type: graphTypeSelect?.value || 'line',
+    chart_percent: percentToggle?.checked ? '1' : '0',
+    chart_items: indexes.join(','),
+    export_visuals: hrExportVisualMode(),
+  };
+
+  document.querySelectorAll('a[data-hr-visual-export-link]').forEach(link => {
+    if (!link.dataset.exportBase) {
+      link.dataset.exportBase = link.getAttribute('href') || '';
+    }
+    const url = new URL(link.dataset.exportBase, window.location.href);
+    Object.entries(params).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+    link.setAttribute('href', url.pathname + url.search + url.hash);
+  });
+}
+
+function downloadCanvasImage(canvas, filename) {
+  const link = document.createElement('a');
+  link.download = filename;
+  link.href = canvas.toDataURL('image/png');
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function copyChartCanvasToPng(source, targetCtx, x, y, width, height) {
+  targetCtx.drawImage(source, x, y, width, height);
+}
+
+function exportHrVisualsPng() {
+  renderHrChart();
+
+  const chartToggle = document.getElementById('hrExportChart');
+  const graphToggle = document.getElementById('hrExportGraph');
+  const chartCanvas = document.getElementById('hrStatsChart');
+  const graphCanvas = document.getElementById('hrStatsGraph');
+  const includeChart = chartToggle?.checked !== false && chartCanvas;
+  const includeGraph = !!graphToggle?.checked && graphCanvas;
+  const items = [];
+
+  if (includeChart) {
+    items.push({ title: 'Диаграмма HR-статистики', canvas: chartCanvas });
+  }
+  if (includeGraph) {
+    items.push({ title: 'График HR-статистики', canvas: graphCanvas });
+  }
+
+  if (!items.length) {
+    showToast('Выберите диаграмму или график для экспорта PNG', 'error');
+    return;
+  }
+
+  const cssWidth = Math.max(...items.map(item => Math.round(item.canvas.getBoundingClientRect().width || item.canvas.width)));
+  const itemHeights = items.map(item => Math.round(item.canvas.getBoundingClientRect().height || item.canvas.height));
+  const padding = 32;
+  const gap = 34;
+  const titleHeight = 28;
+  const width = Math.max(720, cssWidth) + padding * 2;
+  const height = padding + items.reduce((sum, item, index) => sum + titleHeight + itemHeights[index] + (index > 0 ? gap : 0), 0) + padding;
+  const ratio = window.devicePixelRatio || 1;
+  const output = document.createElement('canvas');
+  const ctx = output.getContext('2d');
+  output.width = width * ratio;
+  output.height = height * ratio;
+  output.style.width = width + 'px';
+  output.style.height = height + 'px';
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-surface').trim() || '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#1e293b';
+  ctx.font = '700 18px Inter, sans-serif';
+
+  let y = padding;
+  items.forEach((item, index) => {
+    if (index > 0) y += gap;
+    const itemWidth = Math.round(item.canvas.getBoundingClientRect().width || item.canvas.width);
+    const itemHeight = itemHeights[index];
+    ctx.fillText(item.title, padding, y + 18);
+    y += titleHeight;
+    copyChartCanvasToPng(item.canvas, ctx, padding, y, itemWidth, itemHeight);
+    y += itemHeight;
+  });
+
+  downloadCanvasImage(output, 'hr-visuals-' + new Date().toISOString().slice(0, 10) + '.png');
+}
+
+function renderHrLegend(legend, chart, showPercent) {
+  if (!legend) return;
+
+  const values = chart.values || [];
+  const labels = chart.labels || [];
+  const colors = chart.colors || [];
+  const total = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+  legend.innerHTML = labels.map((label, index) => {
+    const value = Number(values[index]) || 0;
+    const percent = total > 0 ? Math.round(value / total * 1000) / 10 : 0;
+    return `<div class="hr-chart-legend-item">
+      <span class="hr-chart-dot" style="background:${escapeHtml(colors[index] || '#1a56db')}"></span>
+      <span>${escapeHtml(label)}</span>
+      <b>${showPercent ? `${value} · ${percent}%` : value}</b>
+    </div>`;
+  }).join('');
+}
+
+function renderHrChart() {
+  const canvas = document.getElementById('hrStatsChart');
+  const graphCanvas = document.getElementById('hrStatsGraph');
+  const typeSelect = document.getElementById('hrChartType');
+  const graphTypeSelect = document.getElementById('hrGraphType');
+  const percentToggle = document.getElementById('hrChartPercent');
+  const chartPreview = document.getElementById('hrChartPreview');
+  const graphPreview = document.getElementById('hrGraphPreview');
+  const legend = document.getElementById('hrChartLegend');
+  const graphLegend = document.getElementById('hrGraphLegend');
+  const chartToggle = document.getElementById('hrExportChart');
+  const graphToggle = document.getElementById('hrExportGraph');
+  if (!canvas || !typeSelect || !legend) return;
+
+  const metric = 'summary';
+  const type = typeSelect.value || 'doughnut';
+  const graphType = graphTypeSelect?.value || 'line';
+  const showPercent = !!percentToggle?.checked;
+  const showChart = chartToggle?.checked !== false;
+  const showGraph = !!graphToggle?.checked;
+  const chart = hrChartData[metric] || {};
+  syncHrGraphTypeControl();
+  renderHrChartChecks(metric, chart);
+  const selectedChart = selectedHrChart(chart, metric);
+  const ctx = canvas.getContext('2d');
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(320, Math.round(rect.width || canvas.width));
+  const height = Math.max(260, Math.round(rect.height || canvas.height));
+
+  chartPreview?.classList.toggle('is-hidden', !showChart);
+  if (showChart) {
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    if (type === 'bar') {
+      drawHrBarChart(ctx, selectedChart, width, height, showPercent);
+    } else {
+      drawHrPieChart(ctx, selectedChart, type, width, height, showPercent);
+    }
+    renderHrLegend(legend, selectedChart, showPercent);
+  } else {
+    legend.innerHTML = '';
+  }
+
+  graphPreview?.classList.toggle('is-hidden', !showGraph);
+  if (showGraph && graphCanvas) {
+    const graphCtx = graphCanvas.getContext('2d');
+    const graphRect = graphCanvas.getBoundingClientRect();
+    const graphWidth = Math.max(320, Math.round(graphRect.width || graphCanvas.width));
+    const graphHeight = Math.max(260, Math.round(graphRect.height || graphCanvas.height));
+    const graphChart = { ...selectedChart, title: 'График HR-статистики' };
+    graphCanvas.width = graphWidth * ratio;
+    graphCanvas.height = graphHeight * ratio;
+    graphCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    graphCtx.clearRect(0, 0, graphWidth, graphHeight);
+    drawHrLineChart(graphCtx, graphChart, graphWidth, graphHeight, showPercent, graphType);
+    renderHrLegend(graphLegend, selectedChart, showPercent);
+  } else if (graphLegend) {
+    graphLegend.innerHTML = '';
+  }
+
+  updateHrExportLinks();
+}
+
+function handleHrChartCheckChange(e) {
+  const checkbox = e.target.closest('#hrChartChecks input[type="checkbox"]');
+  if (!checkbox) return;
+
+  const metric = 'summary';
+  const index = Number(checkbox.dataset.chartIndex);
+  if (!Number.isInteger(index)) return;
+
+  const visible = hrChartVisible[metric] || [];
+  visible[index] = checkbox.checked;
+
+  if (!visible.some(Boolean)) {
+    visible[index] = true;
+    checkbox.checked = true;
+    showToast('В диаграмме должен остаться хотя бы один пункт', 'error');
+  }
+
+  renderHrChart();
+}
+
 function initHrPage() {
   if (hrPageAbortController) hrPageAbortController.abort();
   hrPageAbortController = new AbortController();
@@ -573,6 +1075,26 @@ function initHrPage() {
 
   const searchInput = document.getElementById('fStudentSearch');
   const searchResults = document.getElementById('searchResults');
+  const chartType = document.getElementById('hrChartType');
+  const graphType = document.getElementById('hrGraphType');
+  const chartPercent = document.getElementById('hrChartPercent');
+  const chartChecks = document.getElementById('hrChartChecks');
+  const exportChart = document.getElementById('hrExportChart');
+  const exportGraph = document.getElementById('hrExportGraph');
+  const exportPng = document.getElementById('hrExportPng');
+
+  renderHrChart();
+  chartType?.addEventListener('change', renderHrChart, { signal });
+  graphType?.addEventListener('change', renderHrChart, { signal });
+  chartPercent?.addEventListener('change', renderHrChart, { signal });
+  chartChecks?.addEventListener('change', handleHrChartCheckChange, { signal });
+  exportChart?.addEventListener('change', renderHrChart, { signal });
+  exportGraph?.addEventListener('change', () => {
+    syncHrGraphTypeControl();
+    renderHrChart();
+  }, { signal });
+  exportPng?.addEventListener('click', exportHrVisualsPng, { signal });
+  window.addEventListener('resize', renderHrChart, { signal });
 
   searchInput?.addEventListener('input', () => {
     const q = searchInput.value.trim();

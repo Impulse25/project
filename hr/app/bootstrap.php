@@ -13,13 +13,17 @@ require_once __DIR__ . '/access.php';
 $userId   = (int)$_SESSION['user_id'];
 $userRole = hr_normalize_role($_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '');
 $userName = $_SESSION['full_name'] ?? '';
+$hrScope  = hr_user_scope($pdo, $userId, $userRole);
 
 $isSystemAdmin = $userRole === 'admin';
 $isDirector    = $userRole === 'director';
 $isTeacher     = $userRole === 'teacher';
+$isHrDepartmentHead = !$isSystemAdmin && !empty($hrScope['department_head']);
+$isHrPracticeHead   = !$isSystemAdmin && !empty($hrScope['practice_head']);
+$canShowHrCharts    = $isHrDepartmentHead || $isHrPracticeHead;
 $isAdmin       = $isSystemAdmin; // оставлено для старых шаблонов: admin — только администратор
 $canOpenAdminPanel = $isSystemAdmin || $isDirector;
-$canManageHrRecords = $isSystemAdmin || $isTeacher;
+$canManageHrRecords = $isSystemAdmin || ($isTeacher && !$isHrDepartmentHead && !$isHrPracticeHead);
 
 $nameParts = explode(' ', trim($userName));
 $initials  = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p, 0, 1)), array_slice($nameParts, 0, 2)));

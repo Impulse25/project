@@ -78,24 +78,110 @@ if (!function_exists('hr_group_state_sql')) {
     }
 }
 
+if (!function_exists('hr_table_column_exists')) {
+    function hr_table_column_exists(PDO $pdo, string $table, string $column): bool
+    {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*)
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = ?
+                  AND COLUMN_NAME = ?
+            ");
+            $stmt->execute([$table, $column]);
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('hr_user_scope')) {
+    function hr_user_scope(PDO $pdo, int $userId, string $role): array
+    {
+        $scope = [
+            'role' => hr_normalize_role($role),
+            'department_head' => false,
+            'department_id' => null,
+            'practice_head' => false,
+        ];
+
+        if ($userId <= 0) {
+            return $scope;
+        }
+
+        $columns = ['id'];
+        foreach (['is_department_head', 'head_department_id', 'is_practice_director'] as $column) {
+            if (hr_table_column_exists($pdo, 'users', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        try {
+            $stmt = $pdo->prepare('SELECT ' . implode(', ', $columns) . ' FROM users WHERE id = ?');
+            $stmt->execute([$userId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            return $scope;
+        }
+
+        $departmentId = (int)($user['head_department_id'] ?? 0);
+        $scope['department_head'] = ((int)($user['is_department_head'] ?? 0) === 1) && $departmentId > 0;
+        $scope['department_id'] = $scope['department_head'] ? $departmentId : null;
+        $scope['practice_head'] = ((int)($user['is_practice_director'] ?? 0) === 1);
+
+        return $scope;
+    }
+}
+
+if (!function_exists('hr_apply_group_state_scope')) {
+    function hr_apply_group_state_scope(array &$conditions, array &$params, string $groupAlias, string $viewMode, int $currentYear): void
+    {
+        $archiveLimit = hr_archive_limit_year($currentYear);
+        $gradExpr = hr_group_grad_expr($groupAlias);
+        $isGraduatesView = in_array($viewMode, ['graduates', 'previous'], true);
+
+        if ($viewMode === 'archive') {
+            $conditions[] = "$gradExpr <= ?";
+            $params[] = $archiveLimit;
+        } elseif ($isGraduatesView) {
+            $conditions[] = "$gradExpr > ?";
+            $conditions[] = "$gradExpr < ?";
+            $params[] = $archiveLimit;
+            $params[] = $currentYear;
+        } elseif (in_array($viewMode, ['group', 'groups'], true)) {
+            $conditions[] = "($gradExpr >= ? OR $groupAlias.year_started IS NULL OR $groupAlias.course IS NULL)";
+            $params[] = $currentYear;
+        }
+    }
+}
+
 if (!function_exists('hr_scope_sql')) {
     /**
      * Возвращает SQL-условия и параметры для ограничения видимости HR-данных.
      * teacher видит только свои кураторские группы; director — отделения; admin — всё.
      */
-    function hr_scope_sql(string $groupAlias, string $role, int $userId, string $viewMode, ?int $currentYear = null): array
+    function hr_scope_sql(string $groupAlias, string $role, int $userId, string $viewMode, ?int $currentYear = null, array $hrScope = []): array
     {
         $role = hr_normalize_role($role);
         $currentYear = $currentYear ?: (int)date('Y');
         $archiveLimit = hr_archive_limit_year($currentYear);
         $gradExpr = hr_group_grad_expr($groupAlias);
+        $departmentExpr = "COALESCE($groupAlias.department_id, sp.department_id)";
 
         $conditions = [];
         $params = [];
 
         $isGraduatesView = in_array($viewMode, ['graduates', 'previous'], true);
 
-        if ($role === 'teacher') {
+        if (!empty($hrScope['practice_head']) && $role !== 'admin') {
+            hr_apply_group_state_scope($conditions, $params, $groupAlias, $viewMode, $currentYear);
+        } elseif (!empty($hrScope['department_head']) && !empty($hrScope['department_id']) && $role !== 'admin') {
+            $conditions[] = "$departmentExpr = ?";
+            $params[] = (int)$hrScope['department_id'];
+            hr_apply_group_state_scope($conditions, $params, $groupAlias, $viewMode, $currentYear);
+        } elseif ($role === 'teacher') {
             $conditions[] = "$groupAlias.curator_id = ?";
             $params[] = $userId;
 
@@ -131,11 +217,14 @@ if (!function_exists('hr_scope_sql')) {
 }
 
 if (!function_exists('hr_allowed_views_for_role')) {
-    function hr_allowed_views_for_role(string $role): array
+    function hr_allowed_views_for_role(string $role, array $hrScope = []): array
     {
         $role = hr_normalize_role($role);
         if ($role === 'admin') {
             return ['all', 'groups', 'graduates', 'departments', 'archive'];
+        }
+        if (!empty($hrScope['practice_head']) || !empty($hrScope['department_head'])) {
+            return ['departments'];
         }
         if ($role === 'director') {
             return ['departments'];
@@ -148,9 +237,12 @@ if (!function_exists('hr_allowed_views_for_role')) {
 }
 
 if (!function_exists('hr_default_view_for_role')) {
-    function hr_default_view_for_role(string $role): string
+    function hr_default_view_for_role(string $role, array $hrScope = []): string
     {
         $role = hr_normalize_role($role);
+        if ($role !== 'admin' && (!empty($hrScope['practice_head']) || !empty($hrScope['department_head']))) {
+            return 'departments';
+        }
         return match ($role) {
             'admin' => 'all',
             'director' => 'departments',

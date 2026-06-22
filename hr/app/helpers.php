@@ -8,6 +8,8 @@ function statusBadge(?string $s): string {
         'studying'   => '<span class="badge badge-blue">Продолжает учёбу</span>',
         'decree'     => '<span class="badge badge-amber">В декрете</span>',
         'military'   => '<span class="badge badge-gray">Военная служба</span>',
+        'relocation' => '<span class="badge badge-gray">Выезд на ПМЖ</span>',
+        'other'      => '<span class="badge badge-gray">Прочее</span>',
         'unknown'    => '<span class="badge badge-gray">Неизвестно</span>',
         default      => '<span class="badge badge-gray">—</span>',
     };

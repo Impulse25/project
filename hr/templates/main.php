@@ -1,10 +1,12 @@
 <?php
 // hr/templates/main.php — основное содержимое HR-страницы
 $exportBaseParams = $_GET;
-unset($exportBaseParams['format'], $exportBaseParams['page']);
-$exportExcelUrl = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'excel']));
-$exportCsvUrl   = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'csv']));
-$exportWordUrl  = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'word']));
+unset($exportBaseParams['format'], $exportBaseParams['page'], $exportBaseParams['chart_type'], $exportBaseParams['graph_type'], $exportBaseParams['chart_percent'], $exportBaseParams['chart_items'], $exportBaseParams['export_visuals'], $exportBaseParams['export_scope']);
+$exportExcelUrl = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'excel', 'export_scope' => 'table']));
+$exportCsvUrl   = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'csv', 'export_scope' => 'table']));
+$exportWordUrl  = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'word', 'export_scope' => 'table']));
+$visualExportExcelUrl = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'excel', 'export_scope' => 'visuals']));
+$visualExportWordUrl  = 'export.php?' . http_build_query(array_merge($exportBaseParams, ['format' => 'word', 'export_scope' => 'visuals']));
 
 $paginationBaseParams = $_GET;
 unset($paginationBaseParams['page']);
@@ -84,7 +86,7 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 1 1 5.82 1c-.45.78-1.16 1.2-1.91 1.8-.7.56-1 1.1-1 2.2"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           Справка
         </button>
-        <a class="btn btn-outline" href="<?= htmlspecialchars($exportExcelUrl) ?>" title="Экспорт текущей выборки в Excel">
+        <a class="btn btn-outline" href="<?= htmlspecialchars($exportExcelUrl) ?>" title="Экспорт таблицы студентов в Excel">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Excel
         </a>
@@ -92,7 +94,7 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
           CSV
         </a>
-        <a class="btn btn-outline" href="<?= htmlspecialchars($exportWordUrl) ?>" title="Экспорт текущей выборки в Word">
+        <a class="btn btn-outline" href="<?= htmlspecialchars($exportWordUrl) ?>" title="Экспорт таблицы студентов в Word">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Word
         </a>
@@ -125,7 +127,7 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
     </div>
     <?php endif ?>
 
-    <?php if($isTeacher): ?>
+    <?php if($isRegularTeacher): ?>
     <div class="scope-overview-card">
       <div class="scope-overview-head">
         <div>
@@ -169,18 +171,28 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
       </div>
       <?php endforeach ?>
     </div>
-    <?php elseif($isDirector || $hrView === 'departments'): ?>
+    <?php elseif($isDirector || $isHrDepartmentHead || $isHrPracticeHead || $hrView === 'departments'): ?>
     <div class="scope-overview-card">
       <div class="scope-overview-head">
         <div>
           <h2>Статистика по отделениям</h2>
-          <p>Для директора доступен только уровень отделений и сводные показатели трудоустройства.</p>
+          <p>
+            <?php if($isHrDepartmentHead): ?>
+              Доступ ограничен выбранным отделением и его показателями трудоустройства.
+            <?php elseif($isHrPracticeHead): ?>
+              Доступна сводная статистика по всем отделениям колледжа.
+            <?php else: ?>
+              Для директора доступен только уровень отделений и сводные показатели трудоустройства.
+            <?php endif ?>
+          </p>
         </div>
       </div>
       <?php if($fDepartment !== null): ?>
       <div class="scope-selected-filter">
         <span>Выбрано отделение: <b><?= htmlspecialchars($selectedDepartmentName ?? 'Без отделения') ?></b></span>
+        <?php if(!$isHrDepartmentHead): ?>
         <a class="btn btn-outline btn-sm" href="<?= htmlspecialchars($clearDepartmentUrl) ?>">Показать все отделения</a>
+        <?php endif ?>
       </div>
       <?php endif ?>
       <?php if(empty($departmentStats)): ?>
@@ -271,6 +283,64 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
       <?php endforeach ?>
     </div>
 
+    <?php if($canShowHrCharts): ?>
+    <div class="card hr-chart-card">
+      <div class="card-header">
+        <span class="card-title">Диаграммы и графики статистики</span>
+        <div class="hr-chart-controls">
+          <label>
+            <span>Вид диаграммы</span>
+            <select class="form-control" id="hrChartType">
+              <option value="doughnut">Кольцевая</option>
+              <option value="pie">Круговая</option>
+              <option value="bar">Столбчатая</option>
+            </select>
+          </label>
+          <label class="hr-graph-type-control" id="hrGraphTypeControl">
+            <span>Вид графика</span>
+            <select class="form-control" id="hrGraphType">
+              <option value="line">Линейный</option>
+              <option value="smooth">Сглаженный</option>
+              <option value="area">С областями</option>
+              <option value="step">Ступенчатый</option>
+            </select>
+          </label>
+          <label class="hr-chart-percent-toggle">
+            <input type="checkbox" id="hrChartPercent">
+            <span>Показывать проценты</span>
+          </label>
+          <div class="hr-export-visuals" aria-label="Что добавить в экспорт">
+            <span>Показать и экспортировать</span>
+            <label>
+              <input type="checkbox" id="hrExportChart" checked>
+              <span>Диаграмма</span>
+            </label>
+            <label>
+              <input type="checkbox" id="hrExportGraph">
+              <span>График</span>
+            </label>
+          </div>
+          <div class="hr-visual-export-actions">
+            <a class="btn btn-outline btn-sm" href="<?= htmlspecialchars($visualExportExcelUrl) ?>" data-hr-visual-export-link="1" title="Экспорт диаграмм и графиков в Excel">Excel</a>
+            <a class="btn btn-outline btn-sm" href="<?= htmlspecialchars($visualExportWordUrl) ?>" data-hr-visual-export-link="1" title="Экспорт диаграмм и графиков в Word">Word</a>
+            <button class="btn btn-outline btn-sm" type="button" id="hrExportPng" title="Экспорт диаграмм и графиков в PNG">PNG</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="hr-chart-checks" id="hrChartChecks"></div>
+        <div class="hr-chart-layout" id="hrChartPreview">
+          <canvas id="hrStatsChart" width="720" height="320" aria-label="Диаграмма HR-статистики"></canvas>
+          <div class="hr-chart-legend" id="hrChartLegend"></div>
+        </div>
+        <div class="hr-chart-layout hr-graph-preview is-hidden" id="hrGraphPreview">
+          <canvas id="hrStatsGraph" width="720" height="320" aria-label="График HR-статистики"></canvas>
+          <div class="hr-chart-legend" id="hrGraphLegend"></div>
+        </div>
+      </div>
+    </div>
+    <?php endif ?>
+
     <!-- Карточка с фильтрами и таблицей -->
     <div class="card">
       <div class="card-header">
@@ -291,7 +361,9 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
             <div class="form-group">
               <label class="form-label">Отделение</label>
               <select name="department_id" class="form-control">
+                <?php if(!$isHrDepartmentHead): ?>
                 <option value="">Все отделения</option>
+                <?php endif ?>
                 <?php foreach($departments as $dept): ?>
                 <option value="<?= $dept['id'] ?>" <?= $fDepartment === (int)$dept['id'] ? 'selected' : '' ?>>
                   <?= htmlspecialchars($dept['department_name']) ?>
@@ -342,6 +414,8 @@ $clearDepartmentUrl = '?' . http_build_query($clearDepartmentParams);
                 <option value="studying"   <?= $fStatus==='studying'   ?'selected':'' ?>>Продолжает учёбу</option>
                 <option value="decree"     <?= $fStatus==='decree'     ?'selected':'' ?>>В декрете</option>
                 <option value="military"   <?= $fStatus==='military'   ?'selected':'' ?>>Военная служба</option>
+                <option value="relocation" <?= $fStatus==='relocation' ?'selected':'' ?>>Выезд на ПМЖ</option>
+                <option value="other"      <?= $fStatus==='other'      ?'selected':'' ?>>Прочее</option>
                 <option value="unknown"    <?= $fStatus==='unknown'    ?'selected':'' ?>>Неизвестно</option>
               </select>
             </div>
