@@ -296,3 +296,63 @@ h1,h2,h3,h4{text-wrap:balance;line-height:1.2}
 @media(max-width:768px){
   .attendance-module-header .page-title{font-size:1.6rem}
 }
+
+
+/* ── Compact filters: чтобы переключатель режима помещался в одну строку ── */
+.attendance-filters-form{
+  display:grid!important;
+  grid-template-columns:minmax(165px,190px) 160px minmax(260px,1fr) minmax(360px,1.25fr) max-content;
+  gap:var(--space-3)!important;
+  align-items:end!important;
+}
+.attendance-filters-form .form-group{min-width:0}
+.attendance-filters-form .form-control{width:100%;min-width:0}
+.attendance-filters-form select[name="student"]{min-width:0!important}
+.attendance-filters-form select[name="semester_id"]{min-width:0!important}
+.mode-toggle-group{min-width:0!important}
+.mode-toggle-after-year{margin-left:0!important;min-width:0!important;justify-self:end}
+.mode-toggle-after-year .mode-switch-wrap{height:42px;min-width:250px;padding:0 var(--space-2)}
+.mode-toggle-after-year .mode-text{font-size:11px}
+.mode-toggle-after-year .mode-switch{width:44px;height:24px}
+.mode-toggle-after-year .mode-slider::before{width:18px;height:18px}
+.mode-toggle-after-year .mode-switch input:checked + .mode-slider::before{transform:translateX(20px)}
+@media (max-width:1400px){
+  .attendance-filters-form{grid-template-columns:repeat(2,minmax(180px,1fr))}
+  .mode-toggle-after-year{justify-self:start}
+}
+
+/* ── Переключатель режима в правой части заголовка ── */
+.attendance-module-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:var(--space-4);
+}
+.attendance-header-mode-switch{
+  margin-top:6px;
+  margin-left:auto;
+  min-width:330px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+}
+.attendance-header-mode-switch .mode-switch-wrap{
+  height:42px;
+  min-width:330px;
+  justify-content:center;
+}
+.attendance-header-mode-switch .mode-text{font-size:13px}
+
+/* Фильтры без переключателя: все поля помещаются ровнее */
+.attendance-filters-form{
+  grid-template-columns:minmax(165px,190px) 160px minmax(260px,1fr) minmax(360px,1.25fr)!important;
+}
+@media (max-width:1200px){
+  .attendance-module-header{flex-direction:column;align-items:stretch}
+  .attendance-header-mode-switch{margin-left:0;min-width:0;width:100%;max-width:360px}
+  .attendance-header-mode-switch .mode-switch-wrap{min-width:0;width:100%}
+  .attendance-filters-form{grid-template-columns:repeat(2,minmax(180px,1fr))!important}
+}
+@media (max-width:640px){
+  .attendance-filters-form{grid-template-columns:1fr!important}
+}

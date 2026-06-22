@@ -38,6 +38,7 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['date'])) {
 $date       = $data['date'];
 $rows       = $data['rows'];
 $group_id   = isset($data['group_id']) ? (int)$data['group_id'] : 0;
+$semester_id = isset($data['semester_id']) ? (int)$data['semester_id'] : 0;
 $teacher_id = (int)$_SESSION['user_id'];
 $userRole   = $_SESSION['role'] ?? 'teacher';
 $allowed    = ['present', 'absent', 'excused', 'late'];
@@ -87,6 +88,70 @@ if (!$userDepartmentId && $isDeptHead) {
     } catch (Throwable $e) {}
 }
 
+
+function att_table_exists(PDO $pdo, string $table): bool {
+    try {
+        $safeTable = str_replace('`', '``', $table);
+        $pdo->query("SELECT 1 FROM `$safeTable` LIMIT 1");
+        return true;
+    } catch (Throwable $e) { return false; }
+}
+
+function att_ensure_semester_schema(PDO $pdo): void {
+    try {
+        if (!att_column_exists($pdo, 'att_attendance', 'semester_id')) {
+            $pdo->exec("ALTER TABLE att_attendance ADD COLUMN semester_id INT(10) UNSIGNED DEFAULT NULL AFTER group_id");
+        }
+    } catch (Throwable $e) {}
+    try {
+        if (!att_column_exists($pdo, 'att_attendance', 'group_id')) {
+            $pdo->exec("ALTER TABLE att_attendance ADD COLUMN group_id INT(10) UNSIGNED DEFAULT NULL AFTER student_id");
+        }
+    } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX idx_att_semester ON att_attendance (semester_id)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX idx_att_semester_student ON att_attendance (semester_id, student_id)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX idx_att_group_semester ON att_attendance (group_id, semester_id)"); } catch (Throwable $e) {}
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS att_semester_absence_totals (
+            id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+            semester_id INT(10) UNSIGNED NOT NULL,
+            group_id INT(10) UNSIGNED NOT NULL,
+            student_id INT(10) UNSIGNED NOT NULL,
+            absent_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            excused_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            late_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            absent_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            excused_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            late_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_att_semester_student (semester_id, student_id),
+            KEY idx_att_semester_group (semester_id, group_id),
+            KEY idx_att_student (student_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) {}
+}
+
+att_ensure_semester_schema($pdo);
+$attendanceHasSemester = att_column_exists($pdo, 'att_attendance', 'semester_id');
+$attendanceHasGroupId  = att_column_exists($pdo, 'att_attendance', 'group_id');
+
+if ($semester_id <= 0 && att_table_exists($pdo, 'edu_semesters')) {
+    try {
+        $stmtSem = $pdo->prepare("SELECT id FROM edu_semesters WHERE :dt BETWEEN start_date AND end_date ORDER BY start_date DESC LIMIT 1");
+        $stmtSem->execute([':dt' => $date]);
+        $semester_id = (int)($stmtSem->fetchColumn() ?: 0);
+    } catch (Throwable $e) {}
+}
+if ($semester_id > 0 && att_table_exists($pdo, 'edu_semesters')) {
+    $stmtSemCheck = $pdo->prepare("SELECT id FROM edu_semesters WHERE id = :sid AND :dt BETWEEN start_date AND end_date LIMIT 1");
+    $stmtSemCheck->execute([':sid' => $semester_id, ':dt' => $date]);
+    if (!$stmtSemCheck->fetch()) {
+        echo json_encode(['success' => false, 'error' => 'Дата не входит в выбранный семестр']);
+        exit;
+    }
+}
+
 // Проверяем доступ к группе.
 // admin/director — все группы; teacher — свои curator_id; зав. отделения — только группы своего отделения.
 $isAdmin = in_array($userRole, ['admin', 'director'], true);
@@ -114,10 +179,19 @@ if ($group_id > 0) {
     $allowedStudentIds = null;
 }
 
+$insertColumns = ['student_id'];
+$insertValues  = [':sid'];
+if ($attendanceHasGroupId) { $insertColumns[] = 'group_id'; $insertValues[] = ':group_id'; }
+if ($attendanceHasSemester) { $insertColumns[] = 'semester_id'; $insertValues[] = ':semester_id'; }
+$insertColumns = array_merge($insertColumns, ['date','status','hours_missed','reason_id','teacher_id']);
+$insertValues  = array_merge($insertValues,  [':date',':status',':hours',':reason',':teacher']);
+
 $stmt = $pdo->prepare("
-    INSERT INTO att_attendance (student_id, date, status, hours_missed, reason_id, teacher_id)
-    VALUES (:sid, :date, :status, :hours, :reason, :teacher)
+    INSERT INTO att_attendance (" . implode(',', $insertColumns) . ")
+    VALUES (" . implode(',', $insertValues) . ")
     ON DUPLICATE KEY UPDATE
+        " . ($attendanceHasGroupId ? "group_id = VALUES(group_id)," : "") . "
+        " . ($attendanceHasSemester ? "semester_id = VALUES(semester_id)," : "") . "
         status       = VALUES(status),
         hours_missed = VALUES(hours_missed),
         reason_id    = VALUES(reason_id),
@@ -141,19 +215,70 @@ try {
         $reason = (!empty($row['reason_id']) && (int)$row['reason_id'] > 0)
                   ? (int)$row['reason_id'] : null;
 
-        $stmt->execute([
+        $execParams = [
             ':sid'     => $sid,
             ':date'    => $date,
             ':status'  => $status,
             ':hours'   => $hours,
             ':reason'  => $reason,
             ':teacher' => $teacher_id,
-        ]);
+        ];
+        if ($attendanceHasGroupId) { $execParams[':group_id'] = $group_id > 0 ? $group_id : null; }
+        if ($attendanceHasSemester) { $execParams[':semester_id'] = $semester_id > 0 ? $semester_id : null; }
+        $stmt->execute($execParams);
         $saved++;
     }
 
+    if ($semester_id > 0 && $group_id > 0 && att_table_exists($pdo, 'att_semester_absence_totals')) {
+        try {
+            $stmtRange = $pdo->prepare("SELECT start_date, end_date FROM edu_semesters WHERE id = :sid LIMIT 1");
+            $stmtRange->execute([':sid' => $semester_id]);
+            $range = $stmtRange->fetch(PDO::FETCH_ASSOC);
+            if ($range) {
+                $sumSql = "
+                    INSERT INTO att_semester_absence_totals
+                        (semester_id, group_id, student_id, absent_hours, excused_hours, late_hours, absent_days, excused_days, late_days)
+                    SELECT
+                        :semester_id AS semester_id,
+                        :group_id AS group_id,
+                        s.id AS student_id,
+                        COALESCE(SUM(CASE WHEN a.status='absent'  THEN a.hours_missed ELSE 0 END),0) AS absent_hours,
+                        COALESCE(SUM(CASE WHEN a.status='excused' THEN a.hours_missed ELSE 0 END),0) AS excused_hours,
+                        COALESCE(SUM(CASE WHEN a.status='late'    THEN a.hours_missed ELSE 0 END),0) AS late_hours,
+                        COUNT(DISTINCT CASE WHEN a.status='absent'  THEN a.date END) AS absent_days,
+                        COUNT(DISTINCT CASE WHEN a.status='excused' THEN a.date END) AS excused_days,
+                        COUNT(DISTINCT CASE WHEN a.status='late'    THEN a.date END) AS late_days
+                    FROM edu_students s
+                    LEFT JOIN att_attendance a ON a.student_id = s.id
+                        AND a.date BETWEEN :df AND :dt
+                        " . ($attendanceHasSemester ? " AND a.semester_id = :semester_id_join" : "") . "
+                    WHERE s.group_id = :group_id_where
+                    GROUP BY s.id
+                    ON DUPLICATE KEY UPDATE
+                        group_id = VALUES(group_id),
+                        absent_hours = VALUES(absent_hours),
+                        excused_hours = VALUES(excused_hours),
+                        late_hours = VALUES(late_hours),
+                        absent_days = VALUES(absent_days),
+                        excused_days = VALUES(excused_days),
+                        late_days = VALUES(late_days),
+                        updated_at = CURRENT_TIMESTAMP
+                ";
+                $sumParams = [
+                    ':semester_id' => $semester_id,
+                    ':group_id' => $group_id,
+                    ':df' => $range['start_date'],
+                    ':dt' => $range['end_date'],
+                    ':group_id_where' => $group_id,
+                ];
+                if ($attendanceHasSemester) $sumParams[':semester_id_join'] = $semester_id;
+                $pdo->prepare($sumSql)->execute($sumParams);
+            }
+        } catch (Throwable $e) { /* журнал уже сохранён; сводку можно пересчитать позже */ }
+    }
+
     $pdo->commit();
-    echo json_encode(['success' => true, 'saved' => $saved]);
+    echo json_encode(['success' => true, 'saved' => $saved, 'semester_id' => $semester_id]);
 
 } catch (PDOException $e) {
     $pdo->rollBack();

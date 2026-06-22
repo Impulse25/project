@@ -79,6 +79,121 @@ if ($customDateFrom > $customDateTo) {
 // Используем общий config/db.php проекта (APP_ENV: local / hosting / college)
 require_once __DIR__ . '/../config/db.php';
 
+
+// ── Интеграция семестров EDU для модуля attendance ─────────────────────────
+// Глобальные таблицы edu_* не изменяем: только читаем edu_semesters.
+// Все новые/изменённые объекты находятся в зоне модуля посещаемости (att_* / att_attendance).
+function att_table_exists(PDO $pdo, string $table): bool {
+    try {
+        $safeTable = str_replace('`', '``', $table);
+        $pdo->query("SELECT 1 FROM `$safeTable` LIMIT 1");
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function att_ensure_semester_schema(PDO $pdo): void {
+    try {
+        if (!att_column_exists($pdo, 'att_attendance', 'semester_id')) {
+            $pdo->exec("ALTER TABLE att_attendance ADD COLUMN semester_id INT(10) UNSIGNED DEFAULT NULL AFTER group_id");
+        }
+    } catch (Throwable $e) { /* если нет прав ALTER — модуль продолжит работать по датам */ }
+
+    try {
+        if (!att_column_exists($pdo, 'att_attendance', 'group_id')) {
+            $pdo->exec("ALTER TABLE att_attendance ADD COLUMN group_id INT(10) UNSIGNED DEFAULT NULL AFTER student_id");
+        }
+    } catch (Throwable $e) { /* не критично */ }
+
+    try { $pdo->exec("CREATE INDEX idx_att_semester ON att_attendance (semester_id)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX idx_att_semester_student ON att_attendance (semester_id, student_id)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX idx_att_group_semester ON att_attendance (group_id, semester_id)"); } catch (Throwable $e) {}
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS att_semester_absence_totals (
+            id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+            semester_id INT(10) UNSIGNED NOT NULL,
+            group_id INT(10) UNSIGNED NOT NULL,
+            student_id INT(10) UNSIGNED NOT NULL,
+            absent_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            excused_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            late_hours INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            absent_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            excused_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            late_days INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_att_semester_student (semester_id, student_id),
+            KEY idx_att_semester_group (semester_id, group_id),
+            KEY idx_att_student (student_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { /* таблица сводных итогов не обязательна для открытия страницы */ }
+}
+
+function att_load_semesters(PDO $pdo): array {
+    if (!att_table_exists($pdo, 'edu_semesters')) return [];
+    try {
+        return $pdo->query("SELECT id, year_start, year_end, semester_num, start_date, end_date
+                            FROM edu_semesters
+                            ORDER BY year_start DESC, semester_num DESC, start_date DESC")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function att_find_semester_for_date(array $semesters, string $date): ?array {
+    foreach ($semesters as $sem) {
+        if ($date >= $sem['start_date'] && $date <= $sem['end_date']) return $sem;
+    }
+    return null;
+}
+
+function att_semester_label(array $sem): string {
+    $num = (int)($sem['semester_num'] ?? 0);
+    $season = $num === 1 ? 'осень' : ($num === 2 ? 'весна' : '');
+    $tail = $season ? " семестр ($season)" : ' семестр';
+    return $sem['year_start'] . '/' . $sem['year_end'] . ' — ' . $num . $tail;
+}
+
+att_ensure_semester_schema($pdo);
+$attendanceHasSemester = att_column_exists($pdo, 'att_attendance', 'semester_id');
+$attendanceHasGroupId  = att_column_exists($pdo, 'att_attendance', 'group_id');
+$semesters = att_load_semesters($pdo);
+
+$selectedSemesterId = isset($_GET['semester_id']) ? (int)$_GET['semester_id'] : 0;
+$selectedSemester = null;
+foreach ($semesters as $sem) {
+    if ((int)$sem['id'] === $selectedSemesterId) { $selectedSemester = $sem; break; }
+}
+if (!$selectedSemester) {
+    $selectedSemester = att_find_semester_for_date($semesters, $selectedDate) ?: att_find_semester_for_date($semesters, date('Y-m-d')) ?: ($semesters[0] ?? null);
+    $selectedSemesterId = $selectedSemester ? (int)$selectedSemester['id'] : 0;
+}
+if ($selectedSemester) {
+    // Дата выставления посещаемости должна попадать в выбранный семестр.
+    // Если пользователь переключил семестр, а дата осталась из другого периода — ставим ближайшую допустимую дату.
+    if ($selectedDate < $selectedSemester['start_date'] || $selectedDate > $selectedSemester['end_date']) {
+        $todayInSem = (date('Y-m-d') >= $selectedSemester['start_date'] && date('Y-m-d') <= $selectedSemester['end_date']);
+        $selectedDate = $todayInSem ? date('Y-m-d') : $selectedSemester['start_date'];
+    }
+
+    // Если пользователь просто выбрал семестр в верхнем фильтре, вкладки отчётов
+    // по умолчанию тоже должны показывать этот семестр, а не текущий месяц.
+    if (!isset($_GET['period'])) {
+        $reportPeriod = 'semester';
+    }
+    if (!isset($_GET['month'])) {
+        $reportMonth = date('Y-m', strtotime($selectedSemester['start_date']));
+    }
+    if (!isset($_GET['date_from'])) {
+        $customDateFrom = $selectedSemester['start_date'];
+    }
+    if (!isset($_GET['date_to'])) {
+        $customDateTo = $selectedSemester['end_date'];
+    }
+}
+
 // ── Права доступа к группам ────────────────────────────────────────────────
 function att_column_exists(PDO $pdo, string $table, string $column): bool {
     // SHOW COLUMNS с bind-параметром на некоторых хостингах возвращает пусто,
@@ -120,10 +235,16 @@ function att_role_permission_enabled(PDO $pdo, string $roleCode, string $permiss
 $isAdmin      = in_array($userRole, ['admin', 'director'], true);
 $isTeacher    = ($userRole === 'teacher');
 $hasDeptAttendancePermission = att_role_permission_enabled($pdo, $userRole, 'can_attendance_view_department');
-$isDeptHead   = $hasDeptAttendancePermission
+
+// Администратор имеет полный доступ к модулю, но не должен считаться зав. отделения.
+// Переключатель режима показываем только реальному зав. отделения.
+$isDeptHead   = !$isAdmin && (
+                $hasDeptAttendancePermission
              || (!empty($dbUser['is_department_head']) && (int)$dbUser['is_department_head'] === 1)
              || in_array($userRole, ['department_head','head_department','zav','zav_otdeleniya','dean','manager'], true)
-             || (mb_stripos($userPosition, 'зав') !== false && mb_stripos($userPosition, 'отдел') !== false);
+             || (mb_stripos($userPosition, 'зав') !== false && mb_stripos($userPosition, 'отдел') !== false)
+);
+$showDeptHeadToggle = $isDeptHead;
 
 // Главное поле для зав. отделения в твоей таблице users — head_department_id.
 $userDepartmentId = isset($_SESSION['head_department_id']) ? (int)$_SESSION['head_department_id'] : 0;
@@ -234,8 +355,8 @@ if (!$isAdmin && $isDeptHead && $attendanceMode === 'department' && $userDepartm
 }
 
 $noGroupsWarning = (!$isAdmin && empty($groups));
-$modeLabel = ($isDeptHead && $attendanceMode === 'department') ? 'Зав. отделения' : 'Преподаватель';
-$groupsLabel = ($isDeptHead && $attendanceMode === 'department') ? 'ваше отделение' : 'ваши группы';
+$modeLabel = ($isDeptHead && $attendanceMode === 'department') ? 'Зав. отделения' : ($isAdmin ? 'Администратор' : 'Преподаватель');
+$groupsLabel = $isAdmin ? 'все группы' : (($isDeptHead && $attendanceMode === 'department') ? 'ваше отделение' : 'ваши группы');
 
 // Выбранная группа: если teacher и запрошенная группа не его — берём первую свою
 $selectedGrp = (int)($_GET['group'] ?? 0);
@@ -277,9 +398,13 @@ $studentSql = "
     LEFT JOIN edu_groups g ON g.id = s.group_id
     LEFT JOIN att_attendance a
            ON a.student_id = s.id AND a.date = :date
+          " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = :semester_id" : "") . "
     WHERE s.group_id = :group_id
 ";
 $params = [':date' => $selectedDate, ':group_id' => $selectedGrp];
+if ($attendanceHasSemester && $selectedSemesterId > 0) {
+    $params[':semester_id'] = $selectedSemesterId;
+}
 if ($selectedStudent > 0) {
     $studentSql .= " AND s.id = :student_id";
     $params[':student_id'] = $selectedStudent;
@@ -356,7 +481,10 @@ switch ($reportPeriod) {
         break;
 
     case 'semester':
-        if ($rapMonthNum >= 9) {
+        if ($selectedSemester) {
+            $rapDateFrom = $selectedSemester['start_date'];
+            $rapDateTo   = $selectedSemester['end_date'];
+        } elseif ($rapMonthNum >= 9) {
             $rapDateFrom = "$rapYear-09-01";
             $rapDateTo   = ($rapYear+1) . "-01-31";
         } else {
@@ -377,12 +505,15 @@ switch ($reportPeriod) {
         $rapDateTo   = "$rapYear-" . sprintf('%02d',$rapMonthNum) . "-$daysInMonth";
 }
 
-$todayStr  = date('Y-m-d');
-$rapDateTo = min($rapDateTo, $todayStr);
-
+// Не обрезаем период сегодняшней датой: выбранный семестр может быть будущим
+// (например 2026/2027), и отчёты должны показывать именно его диапазон.
 if ($rapDateFrom > $rapDateTo) {
-    $rapDateFrom = date('Y-m-01');
-    $rapDateTo   = $todayStr;
+    if ($selectedSemester) {
+        $rapDateFrom = $selectedSemester['start_date'];
+        $rapDateTo   = $selectedSemester['end_date'];
+    } else {
+        [$rapDateFrom, $rapDateTo] = [$rapDateTo, $rapDateFrom];
+    }
 }
 
 // Список дат внутри диапазона (для колонок таблицы)
@@ -411,6 +542,10 @@ if (!empty($rapDates)) {
     if ($selectedStudent > 0) {
         $rapSql .= " AND s.id = ?";
         $rapParams[] = (int)$selectedStudent;
+    }
+    if ($attendanceHasSemester && $selectedSemesterId > 0) {
+        $rapSql .= " AND a.semester_id = ?";
+        $rapParams[] = (int)$selectedSemesterId;
     }
     $rapSql .= " AND a.date IN ($placeholders)";
     $stmtRap = $pdo->prepare($rapSql);
@@ -467,20 +602,30 @@ if ($docsTableExists) {
         INNER JOIN edu_students s ON s.id = d.student_id
         LEFT JOIN  att_absence_reasons r ON r.id = d.reason_id
         WHERE d.group_id = :gid
+          " . ($selectedSemester ? " AND d.date_from <= :sem_to AND d.date_to >= :sem_from" : "") . "
         ORDER BY d.created_at DESC
         LIMIT 100
     ");
-    $stmtDocs->execute([':gid' => $selectedGrp]);
+    $docParams = [':gid' => $selectedGrp];
+    if ($selectedSemester) {
+        $docParams[':sem_from'] = $selectedSemester['start_date'];
+        $docParams[':sem_to']   = $selectedSemester['end_date'];
+    }
+    $stmtDocs->execute($docParams);
     $documents   = $stmtDocs->fetchAll();
     $docsPending = count(array_filter($documents, fn($d) => $d['status'] === 'pending'));
 }
 
 // ── АНАЛИТИКА: загрузка данных из БД ─────────────────────────────────────
-$anPeriod    = $_GET['an_period'] ?? 'month';
+$anPeriod    = $_GET['an_period'] ?? ($selectedSemester ? 'semester' : 'month');
+if (!in_array($anPeriod, ['month','semester','year'], true)) { $anPeriod = $selectedSemester ? 'semester' : 'month'; }
 $anMonth     = preg_match('/^\d{4}-\d{2}$/', $_GET['an_month'] ?? '') ? $_GET['an_month'] : date('Y-m');
 [$anY, $anM] = array_map('intval', explode('-', $anMonth));
 
-if ($anPeriod === 'year') {
+if ($anPeriod === 'semester' && $selectedSemester) {
+    $anDateFrom = $selectedSemester['start_date'];
+    $anDateTo   = $selectedSemester['end_date'];
+} elseif ($anPeriod === 'year') {
     $anYear    = $anM >= 9 ? $anY : $anY - 1;
     $anDateFrom = $anYear    . '-09-01';
     $anDateTo   = ($anYear+1) . '-08-31';
@@ -488,7 +633,7 @@ if ($anPeriod === 'year') {
     $anDateFrom = "$anY-" . sprintf('%02d', $anM) . '-01';
     $anDateTo   = "$anY-" . sprintf('%02d', $anM) . '-' . date('t', mktime(0,0,0,$anM,1,$anY));
 }
-$anDateTo = min($anDateTo, date('Y-m-d'));
+// Не обрезаем аналитику сегодняшней датой, чтобы будущий выбранный семестр не сбрасывался на текущий месяц.
 
 $anGroupIds = $isAdmin ? array_keys($groups) : array_keys($groups);
 if (empty($anGroupIds)) $anGroupIds = [0];
@@ -512,6 +657,7 @@ $anGroups = $pdo->query("
     LEFT JOIN edu_students s     ON s.group_id = g.id
     LEFT JOIN att_attendance a   ON a.student_id = s.id
                                 AND a.date BETWEEN '$anDateFrom' AND '$anDateTo'
+                                " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = " . (int)$selectedSemesterId : "") . "
     LEFT JOIN users u            ON u.id = g.curator_id
     WHERE g.id IN ($anIn)
     GROUP BY g.id, g.name, sp.name_ru, u.full_name
@@ -544,13 +690,16 @@ $anRiskStudents = $pdo->prepare("
     INNER JOIN edu_groups g ON g.id = s.group_id
     LEFT JOIN att_attendance a ON a.student_id = s.id
                                AND a.date BETWEEN :df AND :dt
+                               " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = :an_semester_id" : "") . "
     WHERE g.id IN ($anIn)
     GROUP BY s.id, s.surname, s.name, s.patronymic, g.name
     HAVING absent_h > 0
     ORDER BY absent_h DESC
     LIMIT 30
 ");
-$anRiskStudents->execute([':df'=>$anDateFrom,':dt'=>$anDateTo]);
+$anRiskParams = [':df'=>$anDateFrom,':dt'=>$anDateTo];
+if ($attendanceHasSemester && $selectedSemesterId > 0) $anRiskParams[':an_semester_id'] = $selectedSemesterId;
+$anRiskStudents->execute($anRiskParams);
 $anRiskStudents = $anRiskStudents->fetchAll();
 
 $maxHperStudent = max(1, $workDaysAn * 6);
@@ -572,10 +721,13 @@ $anTrend = $pdo->prepare("
     INNER JOIN edu_students s ON s.id = a.student_id
     WHERE s.group_id = :gid
       AND a.date BETWEEN :df AND :dt
+      " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = :an_semester_id" : "") . "
     GROUP BY a.date
     ORDER BY a.date ASC
 ");
-$anTrend->execute([':gid'=>$selectedGrp, ':df'=>$anDateFrom, ':dt'=>$anDateTo]);
+$anTrendParams = [':gid'=>$selectedGrp, ':df'=>$anDateFrom, ':dt'=>$anDateTo];
+if ($attendanceHasSemester && $selectedSemesterId > 0) $anTrendParams[':an_semester_id'] = $selectedSemesterId;
+$anTrend->execute($anTrendParams);
 $anTrend = $anTrend->fetchAll();
 
 // ── 4. Пропуски по причинам ──────────────────────────────────────────────
@@ -590,10 +742,13 @@ $anReasons = $pdo->prepare("
     WHERE s.group_id IN ($anIn)
       AND a.status IN ('absent','excused')
       AND a.date BETWEEN :df AND :dt
+      " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = :an_semester_id" : "") . "
     GROUP BY r.id, r.name_ru
     ORDER BY hours DESC
 ");
-$anReasons->execute([':df'=>$anDateFrom,':dt'=>$anDateTo]);
+$anReasonParams = [':df'=>$anDateFrom,':dt'=>$anDateTo];
+if ($attendanceHasSemester && $selectedSemesterId > 0) $anReasonParams[':an_semester_id'] = $selectedSemesterId;
+$anReasons->execute($anReasonParams);
 $anReasons = $anReasons->fetchAll();
 $anReasonsTotal = max(1, array_sum(array_column($anReasons, 'hours')));
 
@@ -608,8 +763,11 @@ $anRiskCount     = count(array_filter($anGroups, fn($g) => $g['pct'] < 75));
 
 // ── КРИТЕРИИ: параметры и данные ─────────────────────────────────────────
 $crGroupId   = isset($_GET['cr_group']) ? (int)$_GET['cr_group'] : 0;
-$crDateFrom  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_from'] ?? '') ? $_GET['cr_from'] : date('Y-m-01');
-$crDateTo    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_to']   ?? '') ? $_GET['cr_to']   : date('Y-m-t');
+$crDefaultFrom = $selectedSemester ? $selectedSemester['start_date'] : date('Y-m-01');
+$crDefaultTo   = $selectedSemester ? $selectedSemester['end_date']   : date('Y-m-t');
+$crDateFrom  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_from'] ?? '') ? $_GET['cr_from'] : $crDefaultFrom;
+$crDateTo    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['cr_to']   ?? '') ? $_GET['cr_to']   : $crDefaultTo;
+if ($crDateFrom > $crDateTo) { [$crDateFrom, $crDateTo] = [$crDateTo, $crDateFrom]; }
 $crThreshold = max(1, min(100, (int)($_GET['cr_threshold'] ?? 75)));
 
 // Рабочих дней в периоде
@@ -641,11 +799,14 @@ $crStmt = $pdo->prepare("
     INNER JOIN edu_groups g ON g.id = s.group_id
     LEFT JOIN att_attendance a ON a.student_id = s.id
                                AND a.date BETWEEN :df AND :dt
+                               " . ($attendanceHasSemester && $selectedSemesterId > 0 ? " AND a.semester_id = :cr_semester_id" : "") . "
     WHERE g.id IN ($crIn)
     GROUP BY s.id, s.surname, s.name, s.patronymic, g.name
     ORDER BY g.name, s.surname, s.name
 ");
-$crStmt->execute([':df' => $crDateFrom, ':dt' => $crDateTo]);
+$crParams = [':df' => $crDateFrom, ':dt' => $crDateTo];
+if ($attendanceHasSemester && $selectedSemesterId > 0) $crParams[':cr_semester_id'] = $selectedSemesterId;
+$crStmt->execute($crParams);
 $crStudents = $crStmt->fetchAll();
 
 // Вычисляем % и статус

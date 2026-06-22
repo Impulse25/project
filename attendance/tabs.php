@@ -8,7 +8,7 @@
 <?php if ($noGroupsWarning): ?>
 <!-- Нет привязанных групп -->
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:var(--space-4);text-align:center">
-  <?php if ($isDeptHead): ?>
+  <?php if ($showDeptHeadToggle): ?>
   <form method="get" class="mode-warning-switch" style="margin-bottom:var(--space-2)">
     <input type="hidden" name="tab" value="<?= htmlspecialchars($activeTab) ?>">
     <input type="hidden" name="mode" id="attendanceModeInputEmpty" value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
@@ -45,6 +45,9 @@
       Группа <strong><?= htmlspecialchars($groupInfo['name']) ?></strong>
       · <?= htmlspecialchars($groupInfo['specialty'] ?? '') ?>
       · <?= date('d.m.Y', strtotime($selectedDate)) ?>
+      <?php if (!empty($selectedSemester)): ?>
+      · <span style="color:var(--color-primary)"><?= htmlspecialchars(att_semester_label($selectedSemester)) ?></span>
+      <?php endif ?>
       <?php if (($isAdmin || $isDeptHead) && !empty($groupInfo['department_name'])): ?>
       · <span style="color:var(--color-primary)">Отделение: <?= htmlspecialchars($groupInfo['department_name']) ?></span>
       <?php endif ?>
@@ -53,11 +56,31 @@
       <?php endif ?>
     </p>
   </div>
+  <?php if ($showDeptHeadToggle): ?>
+  <form method="get" class="attendance-header-mode-switch">
+    <input type="hidden" name="tab" value="<?= htmlspecialchars($activeTab) ?>">
+    <input type="hidden" name="group" value="<?= (int)$selectedGrp ?>">
+    <input type="hidden" name="date" value="<?= htmlspecialchars($selectedDate) ?>">
+    <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
+    <input type="hidden" name="semester_id" value="<?= (int)$selectedSemesterId ?>">
+    <input type="hidden" name="mode" id="attendanceModeInputHeader" value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
+    <label class="form-label">Режим просмотра</label>
+    <div class="mode-switch-wrap">
+      <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'teacher' ? 'active' : '' ?>">Преподаватель</span>
+      <label class="mode-switch" title="Переключить режим преподавателя / зав. отделения">
+        <input type="checkbox" <?= ($attendanceMode ?? 'teacher') === 'department' ? 'checked' : '' ?>
+               onchange="document.getElementById('attendanceModeInputHeader').value=this.checked?'department':'teacher'; this.form.submit();">
+        <span class="mode-slider"></span>
+      </label>
+      <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'department' ? 'active' : '' ?>">Зав. отделения</span>
+    </div>
+  </form>
+  <?php endif ?>
 </div>
 
 <!-- Фильтры -->
 <div class="filters-bar">
-  <form method="get" style="display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-end;width:100%">
+  <form method="get" class="attendance-filters-form" style="display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-end;width:100%">
     <input type="hidden" name="tab" value="<?= htmlspecialchars($activeTab) ?>">
     <input type="hidden" name="mode" id="attendanceModeInput" value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
 
@@ -71,15 +94,15 @@
         <?php foreach ($groups as $gid => $g): ?>
         <option value="<?= $gid ?>" <?= $selectedGrp == $gid ? 'selected' : '' ?>>
           <?= htmlspecialchars($g['name']) ?>
-          <?php if (($isAdmin || $isDeptHead) && !empty($g['department_name'])): ?> — <?= htmlspecialchars($g['department_name']) ?><?php endif ?>
-          <?php if ($isAdmin && !empty($g['curator_name'])): ?> — <?= htmlspecialchars($g['curator_name']) ?><?php endif ?>
         </option>
         <?php endforeach ?>
       </select>
     </div>
     <div class="form-group">
       <label class="form-label">Дата</label>
-      <input type="date" name="date" class="form-control" value="<?= htmlspecialchars($selectedDate) ?>" onchange="this.form.submit()">
+      <input type="date" name="date" class="form-control" value="<?= htmlspecialchars($selectedDate) ?>"
+             <?= $selectedSemester ? 'min="'.htmlspecialchars($selectedSemester['start_date']).'" max="'.htmlspecialchars($selectedSemester['end_date']).'"' : '' ?>
+             onchange="this.form.submit()">
     </div>
     <div class="form-group">
       <label class="form-label">Студент</label>
@@ -93,27 +116,20 @@
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">Учебный год</label>
-      <select name="year" class="form-control">
-        <option selected>2025–2026</option>
-        <option>2024–2025</option>
+      <label class="form-label">Семестр</label>
+      <select name="semester_id" class="form-control" onchange="this.form.submit()" style="min-width:210px">
+        <?php if (empty($semesters)): ?>
+        <option value="0">Семестры не найдены</option>
+        <?php else: ?>
+          <?php foreach ($semesters as $sem): ?>
+          <option value="<?= (int)$sem['id'] ?>" <?= $selectedSemesterId === (int)$sem['id'] ? 'selected' : '' ?>>
+            <?= htmlspecialchars(att_semester_label($sem)) ?>
+            · <?= date('d.m.Y', strtotime($sem['start_date'])) ?>–<?= date('d.m.Y', strtotime($sem['end_date'])) ?>
+          </option>
+          <?php endforeach ?>
+        <?php endif ?>
       </select>
     </div>
-
-    <?php if ($isDeptHead): ?>
-    <div class="form-group mode-toggle-group mode-toggle-after-year">
-      <label class="form-label">Режим просмотра</label>
-      <div class="mode-switch-wrap">
-        <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'teacher' ? 'active' : '' ?>">Преподаватель</span>
-        <label class="mode-switch" title="Переключить режим преподавателя / зав. отделения">
-          <input type="checkbox" <?= ($attendanceMode ?? 'teacher') === 'department' ? 'checked' : '' ?>
-                 onchange="document.getElementById('attendanceModeInput').value=this.checked?'department':'teacher'; this.form.submit();">
-          <span class="mode-slider"></span>
-        </label>
-        <span class="mode-text <?= ($attendanceMode ?? 'teacher') === 'department' ? 'active' : '' ?>">Зав. отделения</span>
-      </div>
-    </div>
-    <?php endif ?>
   </form>
 </div>
 
@@ -337,6 +353,7 @@
           <input type="hidden" name="group" value="<?= $selectedGrp ?>">
           <input type="hidden" name="date"  value="<?= htmlspecialchars($selectedDate) ?>">
           <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
+          <input type="hidden" name="semester_id" value="<?= (int)$selectedSemesterId ?>">
 
           <div class="form-group">
             <label class="form-label">Период</label>
@@ -373,7 +390,7 @@
               CSV
             </button>
             <a class="btn btn-primary btn-sm"
-               href="export_vedomost.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $selectedGrp ?>&date_from=<?= urlencode($rapDateFrom) ?>&date_to=<?= urlencode($rapDateTo) ?>&course=<?= urlencode((string)($groupInfo['course'] ?? '')) ?>&period_label=<?= urlencode(date('m.Y', strtotime($rapDateFrom))) ?>&semester=<?= urlencode($reportPeriod === 'semester' ? '?' : '') ?>&student_id=<?= (int)$selectedStudent ?>"
+               href="export_vedomost.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $selectedGrp ?>&date_from=<?= urlencode($rapDateFrom) ?>&date_to=<?= urlencode($rapDateTo) ?>&course=<?= urlencode((string)($groupInfo['course'] ?? '')) ?>&period_label=<?= urlencode(date('m.Y', strtotime($rapDateFrom))) ?>&semester=<?= urlencode($selectedSemester ? att_semester_label($selectedSemester) : ($reportPeriod === 'semester' ? '?' : '')) ?>&student_id=<?= (int)$selectedStudent ?>"
                download>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               Сводная ведомость (.docx)
@@ -491,10 +508,6 @@
                     echo '<td class="rap-cell-weekend">—</td>';
                     continue;
                   }
-                  if ($dt > $todayStr) {
-                    echo '<td class="rap-cell-future"></td>';
-                    continue;
-                  }
 
                   if (!isset($rapData[$sid][$dt])) {
                     // Нет записи в БД = присутствовал (по умолчанию)
@@ -531,7 +544,6 @@
                   $dow  = (int)date('N', strtotime($dt));
                   $isWe = $dow >= 6;
                   if ($isWe) { echo '<td class="rap-cell-weekend">—</td>'; continue; }
-                  if ($dt > $todayStr) { echo '<td></td>'; continue; }
                   $ab = $colAbsent[$dt];
                   $ex = $colExcused[$dt];
                   $lt = $colLate[$dt];
@@ -840,10 +852,12 @@
         <input type="hidden" name="group" value="<?= $selectedGrp ?>">
         <input type="hidden" name="date"  value="<?= htmlspecialchars($selectedDate) ?>">
         <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
+          <input type="hidden" name="semester_id" value="<?= (int)$selectedSemesterId ?>">
         <div class="form-group">
           <label class="form-label">Период</label>
           <select name="an_period" class="form-control" onchange="this.form.submit()">
             <option value="month" <?= $anPeriod==='month'?'selected':'' ?>>Месяц</option>
+            <option value="semester" <?= $anPeriod==='semester'?'selected':'' ?>>Семестр</option>
             <option value="year"  <?= $anPeriod==='year' ?'selected':'' ?>>Учебный год</option>
           </select>
         </div>
@@ -1109,6 +1123,9 @@
         <input type="hidden" name="tab"   value="criteria">
         <input type="hidden" name="mode"  value="<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>">
         <input type="hidden" name="group" value="<?= $selectedGrp ?>">
+        <input type="hidden" name="date" value="<?= htmlspecialchars($selectedDate) ?>">
+        <input type="hidden" name="student" value="<?= (int)$selectedStudent ?>">
+        <input type="hidden" name="semester_id" value="<?= (int)$selectedSemesterId ?>">
 
         <div class="form-group">
           <label class="form-label">Группа</label>
@@ -1144,7 +1161,7 @@
             Применить
           </button>
           <a class="btn btn-primary btn-sm" id="excelDownloadBtn"
-             href="export_criteria.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $crGroupId ?>&date_from=<?= urlencode($crDateFrom) ?>&date_to=<?= urlencode($crDateTo) ?>&threshold=<?= $crThreshold ?>"
+             href="export_criteria.php?mode=<?= urlencode($attendanceMode ?? 'teacher') ?>&group_id=<?= $crGroupId ?>&date_from=<?= urlencode($crDateFrom) ?>&date_to=<?= urlencode($crDateTo) ?>&threshold=<?= $crThreshold ?>&semester_id=<?= (int)$selectedSemesterId ?>"
              download>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             Выгрузить Excel

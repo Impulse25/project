@@ -240,10 +240,35 @@ function _applyDocumentToAttendance(PDO $pdo, int $student_id, string $date_from
     $cursor = strtotime($date_from);
     $end    = strtotime($date_to);
 
+    $hasSemester = false;
+    $hasGroupId = false;
+    try {
+        foreach ($pdo->query("DESCRIBE att_attendance")->fetchAll(PDO::FETCH_ASSOC) as $col) {
+            if (($col['Field'] ?? '') === 'semester_id') $hasSemester = true;
+            if (($col['Field'] ?? '') === 'group_id') $hasGroupId = true;
+        }
+    } catch (Throwable $e) {}
+
+    $studentGroupId = null;
+    try {
+        $stmtGroup = $pdo->prepare("SELECT group_id FROM edu_students WHERE id = :sid LIMIT 1");
+        $stmtGroup->execute([':sid' => $student_id]);
+        $studentGroupId = (int)($stmtGroup->fetchColumn() ?: 0) ?: null;
+    } catch (Throwable $e) {}
+
+    $columns = ['student_id'];
+    $values  = [':sid'];
+    if ($hasGroupId) { $columns[] = 'group_id'; $values[] = ':gid'; }
+    if ($hasSemester) { $columns[] = 'semester_id'; $values[] = ':semid'; }
+    $columns = array_merge($columns, ['date','status','hours_missed','reason_id','teacher_id']);
+    $values  = array_merge($values,  [':date',"'excused'",'6',':rid',':tid']);
+
     $stmt = $pdo->prepare("
-        INSERT INTO att_attendance (student_id, date, status, hours_missed, reason_id, teacher_id)
-        VALUES (:sid, :date, 'excused', 6, :rid, :tid)
+        INSERT INTO att_attendance (" . implode(',', $columns) . ")
+        VALUES (" . implode(',', $values) . ")
         ON DUPLICATE KEY UPDATE
+            " . ($hasGroupId ? "group_id = VALUES(group_id)," : "") . "
+            " . ($hasSemester ? "semester_id = VALUES(semester_id)," : "") . "
             status     = 'excused',
             reason_id  = VALUES(reason_id),
             teacher_id = VALUES(teacher_id)
@@ -252,12 +277,24 @@ function _applyDocumentToAttendance(PDO $pdo, int $student_id, string $date_from
     while ($cursor <= $end) {
         $dow = (int)date('N', $cursor);
         if ($dow <= 5) {
-            $stmt->execute([
+            $dt = date('Y-m-d', $cursor);
+            $semId = null;
+            if ($hasSemester) {
+                try {
+                    $stmtSem = $pdo->prepare("SELECT id FROM edu_semesters WHERE :dt BETWEEN start_date AND end_date ORDER BY start_date DESC LIMIT 1");
+                    $stmtSem->execute([':dt' => $dt]);
+                    $semId = (int)($stmtSem->fetchColumn() ?: 0) ?: null;
+                } catch (Throwable $e) {}
+            }
+            $params = [
                 ':sid'  => $student_id,
-                ':date' => date('Y-m-d', $cursor),
+                ':date' => $dt,
                 ':rid'  => $reason_id,
                 ':tid'  => $teacher_id,
-            ]);
+            ];
+            if ($hasGroupId) $params[':gid'] = $studentGroupId;
+            if ($hasSemester) $params[':semid'] = $semId;
+            $stmt->execute($params);
         }
         $cursor += 86400;
     }

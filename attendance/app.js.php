@@ -50,6 +50,7 @@ function switchTab(name) {
   if (!url.searchParams.get('group')) url.searchParams.set('group', '<?= (int)$selectedGrp ?>');
   if (!url.searchParams.get('date'))  url.searchParams.set('date',  '<?= htmlspecialchars($selectedDate) ?>');
   if (!url.searchParams.get('mode'))  url.searchParams.set('mode',  '<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>');
+  if (!url.searchParams.get('semester_id')) url.searchParams.set('semester_id', '<?= (int)$selectedSemesterId ?>');
   if (name === 'report' && !url.searchParams.get('month')) {
     url.searchParams.set('month', '<?= htmlspecialchars($reportMonth) ?>');
   }
@@ -133,8 +134,16 @@ function saveAttendance() {
   if (rows.length === 0) { showToast('Нет студентов для сохранения', 'error'); return; }
 
   const currentUrl   = new URL(window.location.href);
-  const currentDate  = currentUrl.searchParams.get('date')  || '<?= htmlspecialchars($selectedDate) ?>';
-  const currentGroup = currentUrl.searchParams.get('group') || '<?= (int)$selectedGrp ?>';
+  // Берём значения из полей формы, а не только из URL.
+  // Важно: PHP может автоматически поправить дату под выбранный семестр,
+  // а в URL ещё может остаться старая дата из другого семестра.
+  const dateField     = document.querySelector('input[name="date"]');
+  const groupField    = document.querySelector('select[name="group"]');
+  const semesterField = document.querySelector('select[name="semester_id"]');
+
+  const currentDate  = dateField?.value || '<?= htmlspecialchars($selectedDate) ?>';
+  const currentGroup = groupField?.value || currentUrl.searchParams.get('group') || '<?= (int)$selectedGrp ?>';
+  const currentSemester = semesterField?.value || currentUrl.searchParams.get('semester_id') || '<?= (int)$selectedSemesterId ?>';
 
   const btn = document.getElementById('saveBtn');
   if (btn) btn.innerHTML = '⏳ Сохранение...';
@@ -142,7 +151,7 @@ function saveAttendance() {
   fetch('save.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date: currentDate, group_id: currentGroup, rows })
+    body: JSON.stringify({ date: currentDate, group_id: currentGroup, semester_id: currentSemester, rows })
   })
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
   .then(d => {
@@ -152,6 +161,7 @@ function saveAttendance() {
       url.searchParams.set('tab',   'journal');
       url.searchParams.set('group', currentGroup);
       url.searchParams.set('date',  currentDate);
+      url.searchParams.set('semester_id', currentSemester);
       url.searchParams.set('saved', '1');
       window.location.replace(url.toString());
     } else {
