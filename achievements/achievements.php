@@ -158,6 +158,17 @@ $allTeachers = $pdo->query("SELECT id, full_name FROM users
 $lvlColors = ['international'=>'purple','national'=>'blue','regional'=>'green','city'=>'amber','college'=>'gray'];
 $totalAch  = count($studentAchs) + count($teacherAchs);
 $totalCert = count($studentCerts) + count($teacherCerts);
+
+// Во вкладку «Достижения» подмешиваем сертификаты — чтобы они тоже были видны в общем списке.
+// Помечаем каждую запись: _type (student/teacher) и _entity (ach/cert).
+$allAchs = array_merge(
+    array_map(fn($r) => $r + ['_type'=>'student', '_entity'=>'ach'],  $studentAchs),
+    array_map(fn($r) => $r + ['_type'=>'teacher', '_entity'=>'ach'],  $teacherAchs),
+    array_map(fn($r) => $r + ['_type'=>'student', '_entity'=>'cert'], $studentCerts),
+    array_map(fn($r) => $r + ['_type'=>'teacher', '_entity'=>'cert'], $teacherCerts)
+);
+// свежие сверху (по дате добавления)
+usort($allAchs, fn($x, $y) => strcmp($y['created_at'] ?? '', $x['created_at'] ?? ''));
 ?>
 
 <?php if ($flash): ?>
@@ -175,6 +186,9 @@ $totalCert = count($studentCerts) + count($teacherCerts);
   <div style="display:flex;gap:.75rem;flex-wrap:wrap">
     <?php if (in_array($role, ['admin','teacher','director'])): ?>
     <a href="<?= SITE_URL ?>/cert_review.php" class="btn btn-secondary"> Загрузить PDF</a>
+    <?php endif; ?>
+    <?php if (in_array($role, ['admin','teacher','director'])): ?>
+    <button type="button" class="btn btn-secondary" onclick="openModal('modal-export')">⬇ Выгрузка по критериям</button>
     <?php endif; ?>
   </div>
 </div>
@@ -218,7 +232,7 @@ $totalCert = count($studentCerts) + count($teacherCerts);
   <div style="display:flex;border-bottom:1px solid var(--border)">
     <?php
     $tabs = [
-      'achievements' => [' Достижения', $totalAch],
+      'achievements' => [' Достижения', count($allAchs)],
       'certs'        => [' Сертификаты', $totalCert],
     ];
     foreach ($tabs as $tid => [$tlabel, $tcount]):
@@ -248,16 +262,13 @@ $totalCert = count($studentCerts) + count($teacherCerts);
       </thead>
       <tbody>
       <?php
-        $allAchs = array_merge(
-            array_map(fn($r) => $r + ['_type'=>'student'], $studentAchs),
-            array_map(fn($r) => $r + ['_type'=>'teacher'], $teacherAchs)
-        );
         if (empty($allAchs)):
       ?>
         <tr><td colspan="10" style="text-align:center;padding:var(--space-10);color:var(--text-m)">Достижений не найдено</td></tr>
       <?php else: foreach ($allAchs as $i => $a):
         $lc = $lvlColors[$a['level']??''] ?? 'gray';
         $isT = $a['_type'] === 'teacher';
+        $isCert = ($a['_entity'] ?? 'ach') === 'cert';
         $rc  = $isT ? 'blue' : 'green';
         $rt  = $isT ? 'Преподаватель' : 'Студент';
       ?>
@@ -270,14 +281,26 @@ $totalCert = count($studentCerts) + count($teacherCerts);
           <td><?= h($a['group_name']??'—') ?></td>
           <td>
             <div style="font-weight:600"><?= h($a['title']) ?></div>
-            <?php if (!empty($a['description'])): ?>
-              <div style="font-size:.72rem;color:var(--text-m)"><?= h(mb_strimwidth($a['description'],0,50,'…')) ?></div>
+            <?php if ($isCert): ?>
+              <?php if (!empty($a['issuer'])): ?>
+                <div style="font-size:.72rem;color:var(--text-m)"><?= h(mb_strimwidth($a['issuer'],0,50,'…')) ?></div>
+              <?php endif; ?>
+            <?php else: ?>
+              <?php if (!empty($a['description'])): ?>
+                <div style="font-size:.72rem;color:var(--text-m)"><?= h(mb_strimwidth($a['description'],0,50,'…')) ?></div>
+              <?php endif; ?>
             <?php endif; ?>
           </td>
-          <td><span class="badge badge-blue"><?= categoryLabel($a['category']??'') ?></span></td>
+          <td>
+            <?php if ($isCert): ?>
+              <span class="badge badge-gray">Сертификат</span>
+            <?php else: ?>
+              <span class="badge badge-blue"><?= categoryLabel($a['category']??'') ?></span>
+            <?php endif; ?>
+          </td>
           <td><span class="badge badge-<?= $lc ?>"><?= levelLabel($a['level']??'') ?></span></td>
           <td><?= $a['place'] ? '<span class="badge badge-amber"> '.h($a['place']).'</span>' : '—' ?></td>
-          <td><?= h($a['date_event']??'—') ?></td>
+          <td><?= h(($isCert ? ($a['issue_date'] ?? '') : ($a['date_event'] ?? '')) ?: '—') ?></td>
           <td>
             <?php if (!empty($a['file_path'])): ?>
               <div style="display:flex;gap:.35rem">
@@ -290,8 +313,13 @@ $totalCert = count($studentCerts) + count($teacherCerts);
           </td>
           <?php if (in_array($role,['admin','teacher','director'])): ?>
           <td>
-            <a href="<?= SITE_URL ?>/actions/achievement_delete.php?id=<?= $a['id'] ?>&user_id=<?= $a['user_id']??0 ?>&tab=achievements"
-               class="btn btn-danger btn-sm" onclick="return confirm('Удалить?')">🗑</a>
+            <?php if ($isCert): ?>
+              <a href="<?= SITE_URL ?>/actions/cert_delete.php?id=<?= $a['id'] ?>&user_id=<?= $a['user_id']??0 ?>"
+                 class="btn btn-danger btn-sm" onclick="return confirm('Удалить?')">🗑</a>
+            <?php else: ?>
+              <a href="<?= SITE_URL ?>/actions/achievement_delete.php?id=<?= $a['id'] ?>&user_id=<?= $a['user_id']??0 ?>&tab=achievements"
+                 class="btn btn-danger btn-sm" onclick="return confirm('Удалить?')">🗑</a>
+            <?php endif; ?>
           </td>
           <?php endif; ?>
         </tr>
@@ -398,243 +426,6 @@ $totalCert = count($studentCerts) + count($teacherCerts);
 
 <?php if (in_array($role, ['admin','teacher','director'])): ?>
 
-<!-- ============================================================ -->
-<!-- Modal: Добавить достижение                                   -->
-<!-- ============================================================ -->
-<div class="modal-overlay" id="modal-ach-add">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title"> Добавить достижение</div>
-      <button class="modal-close" onclick="closeModal('modal-ach-add')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form method="POST" action="<?= SITE_URL ?>/actions/achievement_save.php" enctype="multipart/form-data">
-        <input type="hidden" name="tab" value="achievements">
-
-        <!-- Студент или Преподаватель -->
-        <div class="form-group">
-          <div style="display:flex;gap:.75rem;margin-bottom:.75rem">
-            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-              <input type="radio" name="ach_ptype" value="student" checked onchange="switchAchType('student')"> Студент
-            </label>
-            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-              <input type="radio" name="ach_ptype" value="teacher" onchange="switchAchType('teacher')"> Преподаватель
-            </label>
-          </div>
-        </div>
-
-        <!-- Поиск студента -->
-        <div id="ach-block-student">
-          <div class="form-group">
-            <label class="form-label">Поиск студента</label>
-            <input type="text" id="ach-student-search" class="form-control"
-                   placeholder="Введите фамилию или имя…" autocomplete="off"
-                   oninput="searchPerson('ach-student-search','ach-student-results','ach-student-id','ach-student-selected','students')">
-            <div id="ach-student-results" class="search-dropdown"></div>
-          </div>
-          <input type="hidden" name="edu_student_id" id="ach-student-id" value="">
-          <div id="ach-student-selected" class="selected-person" style="display:none"></div>
-          <!-- Соавторы-студенты -->
-          <div class="form-group">
-            <label class="form-label">Ещё студенты <span style="font-size:.75rem;color:var(--text-m);font-weight:400">(если достижение совместное)</span></label>
-            <div id="ach-co-students-list" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:.4rem"></div>
-            <div style="position:relative">
-              <input type="text" id="ach-co-student-search" class="form-control"
-                     placeholder="Добавить ещё студента…" autocomplete="off"
-                     oninput="searchAchCoStudent(this.value)">
-              <div id="ach-co-student-results" class="search-dropdown"></div>
-            </div>
-          </div>
-          <div id="ach-co-student-ids"></div>
-        </div>
-
-        <!-- Поиск преподавателя -->
-        <div id="ach-block-teacher" style="display:none">
-          <div class="form-group">
-            <label class="form-label">Поиск преподавателя</label>
-            <input type="text" id="ach-teacher-search" class="form-control"
-                   placeholder="Введите фамилию…" autocomplete="off"
-                   oninput="searchPerson('ach-teacher-search','ach-teacher-results','ach-teacher-id','ach-teacher-selected','teachers')">
-            <div id="ach-teacher-results" class="search-dropdown"></div>
-          </div>
-          <input type="hidden" name="user_id" id="ach-teacher-id" value="">
-          <div id="ach-teacher-selected" class="selected-person" style="display:none"></div>
-          <!-- Соавторы-преподаватели -->
-          <div class="form-group">
-            <label class="form-label">Ещё преподаватели <span style="font-size:.75rem;color:var(--text-m);font-weight:400">(если достижение совместное)</span></label>
-            <div id="ach-co-teachers-list" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:.4rem"></div>
-            <div style="position:relative">
-              <input type="text" id="ach-co-teacher-search" class="form-control"
-                     placeholder="Добавить ещё преподавателя…" autocomplete="off"
-                     oninput="searchAchCoTeacher(this.value)">
-              <div id="ach-co-teacher-results" class="search-dropdown"></div>
-            </div>
-          </div>
-          <div id="ach-co-teacher-ids"></div>
-        </div>
-
-        <!-- Поля достижения -->
-        <div class="form-group">
-          <label class="form-label">Название достижения</label>
-          <input type="text" name="title" class="form-control" placeholder="Олимпиада по программированию" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Описание</label>
-          <textarea name="description" class="form-control" rows="2" placeholder="Краткое описание…"></textarea>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Категория</label>
-            <select name="category" class="form-control" required>
-              <option value="olympiad">Олимпиада</option>
-              <option value="conference">Конференция</option>
-              <option value="sport">Спорт</option>
-              <option value="art">Творчество</option>
-              <option value="science">Наука</option>
-              <option value="other">Другое</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Уровень</label>
-            <select name="level" class="form-control" required>
-              <option value="college">Колледж</option>
-              <option value="city">Город</option>
-              <option value="regional">Регион</option>
-              <option value="national">Республика</option>
-              <option value="international">Международный</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Место (1, 2, 3…)</label>
-            <input type="number" name="place" class="form-control" min="1" max="99" placeholder="Необязательно">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Дата</label>
-            <input type="date" name="date_event" class="form-control">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">PDF / Фото грамоты</label>
-          <input type="file" name="pdf_file" class="form-control" accept=".pdf,.jpg,.jpeg,.png" style="height:auto;padding:.5rem">
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Сохранить</button>
-          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-ach-add')">Отмена</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- ============================================================ -->
-<!-- Modal: Добавить сертификат                                   -->
-<!-- ============================================================ -->
-<div class="modal-overlay" id="modal-cert-add">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title"> Добавить сертификат</div>
-      <button class="modal-close" onclick="closeModal('modal-cert-add')">✕</button>
-    </div>
-    <div class="modal-body">
-      <form method="POST" action="<?= SITE_URL ?>/actions/cert_save.php" enctype="multipart/form-data">
-        <div class="form-group">
-          <div style="display:flex;gap:.75rem;margin-bottom:.75rem">
-            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-              <input type="radio" name="cert_ptype" value="student" checked onchange="switchCertType('student')"> Студент
-            </label>
-            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-              <input type="radio" name="cert_ptype" value="user" onchange="switchCertType('user')"> Преподаватель
-            </label>
-          </div>
-        </div>
-        <input type="hidden" name="cert_type" id="cert-type-val" value="student">
-
-        <!-- Поиск студента -->
-        <div id="cert-block-student">
-          <div class="form-group">
-            <label class="form-label">Поиск студента</label>
-            <input type="text" id="cert-student-search" class="form-control"
-                   placeholder="Введите фамилию или имя…" autocomplete="off"
-                   oninput="searchPerson('cert-student-search','cert-student-results','cert-student-id','cert-student-selected','students')">
-            <div id="cert-student-results" class="search-dropdown"></div>
-          </div>
-          <input type="hidden" name="edu_student_id" id="cert-student-id" value="">
-          <div id="cert-student-selected" class="selected-person" style="display:none"></div>
-          <!-- Соавторы-студенты -->
-          <div class="form-group">
-            <label class="form-label">Ещё студенты <span style="font-size:.75rem;color:var(--text-m);font-weight:400">(если сертификат на нескольких)</span></label>
-            <div id="cert-co-students-list" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:.4rem"></div>
-            <div style="position:relative">
-              <input type="text" id="cert-co-student-search" class="form-control"
-                     placeholder="Добавить ещё студента…" autocomplete="off"
-                     oninput="searchCertCoStudent(this.value)">
-              <div id="cert-co-student-results" class="search-dropdown"></div>
-            </div>
-          </div>
-          <div id="cert-co-student-ids"></div>
-        </div>
-
-        <!-- Поиск преподавателя -->
-        <div id="cert-block-user" style="display:none">
-          <div class="form-group">
-            <label class="form-label">Преподаватель</label>
-            <input type="text" id="cert-teacher-search" class="form-control"
-                   placeholder="Введите фамилию…" autocomplete="off"
-                   oninput="searchPerson('cert-teacher-search','cert-teacher-results','cert-user-id','cert-teacher-selected','teachers')">
-            <div id="cert-teacher-results" class="search-dropdown"></div>
-          </div>
-          <input type="hidden" name="user_id" id="cert-user-id" value="">
-          <div id="cert-teacher-selected" class="selected-person" style="display:none"></div>
-
-          <!-- Совместные владельцы -->
-          <div class="form-group">
-            <label class="form-label">
-              Ещё преподаватели
-              <span style="font-size:.75rem;color:var(--text-m);font-weight:400">(если документ на нескольких)</span>
-            </label>
-            <div id="co-owners-list" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:.4rem"></div>
-            <div style="position:relative">
-              <input type="text" id="co-owner-search" class="form-control"
-                     placeholder="Добавить ещё преподавателя…" autocomplete="off"
-                     oninput="searchCoOwner(this.value)">
-              <div id="co-owner-results" class="search-dropdown"></div>
-            </div>
-          </div>
-          <div id="co-owner-ids"></div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Название сертификата</label>
-          <input type="text" name="title" class="form-control" placeholder="Веб-разработка на Python" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Организация / выдал</label>
-          <input type="text" name="issuer" class="form-control" placeholder="Coursera, Stepik, РЦРО…">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Дата выдачи</label>
-            <input type="date" name="issue_date" class="form-control">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Место / результат</label>
-            <input type="text" name="place" class="form-control" placeholder="1 место, Диплом I степени…">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">PDF / JPG / PNG файл</label>
-          <input type="file" name="pdf_file" class="form-control" accept=".pdf,.jpg,.jpeg,.png" style="height:auto;padding:.5rem">
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Сохранить</button>
-          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-cert-add')">Отмена</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
 
 <!-- ============================================================ -->
 <!-- Modal: Загрузить PDF                                         -->
@@ -698,6 +489,76 @@ $totalCert = count($studentCerts) + count($teacherCerts);
     </div>
   </div>
 </div>
+
+<!-- ============================================================ -->
+<!-- Modal: Выгрузка по критериям                                 -->
+<!-- ============================================================ -->
+<div class="modal-overlay" id="modal-export">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⬇ Выгрузка по критериям</div>
+      <button class="modal-close" onclick="closeModal('modal-export')">✕</button>
+    </div>
+    <div class="modal-body">
+      <form method="GET" action="<?= SITE_URL ?>/export.php">
+        <input type="hidden" name="export" value="1">
+
+        <div class="form-group">
+          <label class="form-label">Что выгружать</label>
+          <select name="kind" class="form-control">
+            <option value="cert" selected>Сертификаты</option>
+            <option value="ach">Достижения</option>
+            <option value="all">Всё</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Дата с</label>
+            <input type="date" name="date_from" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Дата по</label>
+            <input type="date" name="date_to" class="form-control">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Уровень</label>
+            <select name="level" class="form-control">
+              <option value="">Все уровни</option>
+              <option value="college">Колледж</option>
+              <option value="city">Город</option>
+              <option value="regional">Область</option>
+              <option value="national">Республика</option>
+              <option value="international">Международный</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Тип людей</label>
+            <select name="type" class="form-control">
+              <option value="all">Все</option>
+              <option value="students">Студенты</option>
+              <option value="teachers">Преподаватели</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="font-size:.75rem;color:var(--text-m);margin:.25rem 0 .9rem">
+          Период считается по дате выдачи сертификата. Пустые поля — без ограничения.
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" name="fmt" value="xlsx" class="btn btn-primary">⬇ Excel (.xlsx)</button>
+          <button type="submit" name="fmt" value="csv"  class="btn btn-secondary">⬇ CSV</button>
+          <button type="button" class="btn btn-secondary" onclick="closeModal('modal-export')">Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 
 <?php endif; ?>
 
