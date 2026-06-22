@@ -15,6 +15,8 @@ $_nav = [
     'hr_module'     => $root .   '/hr',
     'edu_module'    => $root .  '/edu',
     'rpt_module'    => $root .  '/analytics',
+    'qr_module'    => $root .  '/qr',
+
     'it_requests'   => $root .  '/requests/teacher_dashboard.php',
 
     'admin_dash'    => $root . '/requests/admin_dashboard.php',
@@ -94,9 +96,16 @@ function _nav_active(string $key, string $current): string {
       <span>Аналитика</span>
     </a>
 
+    <a href="<?= $_nav['qr_module'] ?>" class="nav-item <?= _nav_active('qr_module', $_nav_active_key) ?>">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h2v2h-2zM18 14h3M14 18h3M18 18h3v3h-3z"/></svg>
+      <span>QR-Посещаемость</span>
+    </a>
+
+    <div class="nav-section-label">Заявки в ИТ</div>
+
     <a href="<?= $_nav['it_requests'] ?>" class="nav-item">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span>Заявки в ИТ</span>
+      <span>Мои заявки</span>
     </a>
 
     <?php if($isAdmin): ?>
