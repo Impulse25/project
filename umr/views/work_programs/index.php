@@ -331,6 +331,7 @@ unset($_SESSION['flash']);
   <?php
     $_breadcrumbs = ['УМР' => null, 'Рабочие программы' => null];
     require_once BASE_PATH . '/partials/topbar.php';
+    require_once BASE_PATH . '/partials/umr_subnav.php';
   ?>
 
   <main class="page-content">
