@@ -132,7 +132,7 @@ if ($allowedGroupIds) {
         $plan = max(1, (int)$r['students_count'] * $days * 6);
         $attPct = $hasAttendance ? round(max(0, ($plan - (int)$r['absent_hours']) / $plan * 100), 1) : null;
         $avg = $r['avg_grade'] !== null ? round((float)$r['avg_grade'], 1) : null;
-        $status = 'Стабильная';
+        $status = (!\$avg && !\$attPct && \$avg!==0 && \$attPct!==0) ? 'Нет данных' : 'Стабильная';
         if (($avg !== null && $avg < 60) || ($attPct !== null && $attPct < 65)) $status = 'Проблемная';
         elseif (($avg !== null && $avg < 70) || ($attPct !== null && $attPct < 75)) $status = 'Требует контроля';
         $groupRows[] = [
@@ -223,7 +223,7 @@ if ($allowedGroupIds && in_array($section, ['grades', 'attendance', 'report'], t
 
 
 // Данные для графиков Dashboard
-$gradeDistribution = ['5' => 0, '4' => 0, '3' => 0, '2' => 0];
+$gradeDistribution = ['90-100'=>0,'70-89'=>0,'51-69'=>0,'0-50'=>0];
 if ($hasGrades && $allowedGroupIds) {
     $where = "s.group_id IN ($inGroups) AND eg.grade IS NOT NULL";
     $params = [];
@@ -237,7 +237,7 @@ if ($hasGrades && $allowedGroupIds) {
     $stmt = $pdo->prepare("\n        SELECT\n          SUM(CASE WHEN eg.grade >= 90 THEN 1 ELSE 0 END) AS g5,\n          SUM(CASE WHEN eg.grade >= 70 AND eg.grade < 90 THEN 1 ELSE 0 END) AS g4,\n          SUM(CASE WHEN eg.grade >= 51 AND eg.grade < 70 THEN 1 ELSE 0 END) AS g3,\n          SUM(CASE WHEN eg.grade < 51 THEN 1 ELSE 0 END) AS g2\n        FROM edu_grades eg\n        JOIN edu_students s ON s.id = eg.student_id\n        WHERE $where\n    ");
     $stmt->execute($params);
     $gd = $stmt->fetch() ?: [];
-    $gradeDistribution = ['5'=>(int)($gd['g5']??0),'4'=>(int)($gd['g4']??0),'3'=>(int)($gd['g3']??0),'2'=>(int)($gd['g2']??0)];
+    $gradeDistribution = ['90-100'=>(int)($gd['g5']??0),'70-89'=>(int)($gd['g4']??0),'51-69'=>(int)($gd['g3']??0),'0-50'=>(int)($gd['g2']??0)];
 }
 
 $courseBuckets = [];

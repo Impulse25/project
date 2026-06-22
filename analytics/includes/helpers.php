@@ -118,8 +118,13 @@ function an_date_range(string $period, string $from, string $to): array {
 function an_course_from_group(string $name): string {
     /*
      * В названиях групп портала часто есть два числа: например «БДТ-11-23».
-     * Первое число — не год поступления, поэтому нельзя брать первое совпадение «-11».
-     * Берём именно последние две цифры в конце названия группы: «...-23», «...-24», «...-25».
+     * Первое число — база набора/специальности, поэтому нельзя брать первое совпадение «-11».
+     * Берём последние две цифры в конце названия: «...-23», «...-24», «...-25».
+     *
+     * Важно: курс НЕ должен автоматически превращаться в «Выпускники».
+     * В портале могут оставаться старые или тестовые группы, и из-за этого карточка
+     * «Выпускники» ошибочно показывала 1. Выпуск считается отдельно только
+     * по явному признаку выпуска, а не по возрасту группы.
      */
     $name = trim($name);
     if (preg_match('/-(\d{2})\s*$/u', $name, $m)) {
@@ -127,15 +132,20 @@ function an_course_from_group(string $name): string {
         $course = (int)date('Y') - $startYear;
         if ((int)date('n') >= 9) $course++;
         if ($course < 1) $course = 1;
-        if ($course > 4) return 'Выпускники';
+        if ($course > 4) $course = 4;
         return $course . ' курс';
     }
     return 'Не указан';
 }
 
 function an_group_is_graduate(string $name): bool {
+    /*
+     * Считаем выпускной только группу, где это явно указано в названии.
+     * Не используем an_course_from_group(), чтобы группы старых годов не попадали
+     * в выпуск автоматически.
+     */
     $name = trim($name);
-    return an_course_from_group($name) === 'Выпускники' || (bool)preg_match('/выпуск/ui', $name);
+    return (bool)preg_match('/выпуск|выпускн|graduate/ui', $name);
 }
 
 function an_grade_category($grade): string {
