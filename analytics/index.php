@@ -132,7 +132,7 @@ if ($allowedGroupIds) {
         $plan = max(1, (int)$r['students_count'] * $days * 6);
         $attPct = $hasAttendance ? round(max(0, ($plan - (int)$r['absent_hours']) / $plan * 100), 1) : null;
         $avg = $r['avg_grade'] !== null ? round((float)$r['avg_grade'], 1) : null;
-        $status = (!\$avg && !\$attPct && \$avg!==0 && \$attPct!==0) ? 'Нет данных' : 'Стабильная';
+        $status = ($avg === null && $attPct === null) ? 'Нет данных' : 'Стабильная';
         if (($avg !== null && $avg < 60) || ($attPct !== null && $attPct < 65)) $status = 'Проблемная';
         elseif (($avg !== null && $avg < 70) || ($attPct !== null && $attPct < 75)) $status = 'Требует контроля';
         $groupRows[] = [
