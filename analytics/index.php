@@ -15,6 +15,7 @@ require_once __DIR__ . '/../config/db.php';
 
 $userId = (int)($_SESSION['user_id'] ?? 0);
 $userRoleRaw = $_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '';
+$role = $userRoleRaw;
 $userName = trim((string)($_SESSION['full_name'] ?? ''));
 
 require_once __DIR__ . '/includes/helpers.php';
