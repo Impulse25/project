@@ -945,3 +945,55 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
       outline: none; border-color: var(--color-primary);
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 15%, transparent);
     }
+
+.umr-subnav {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  padding: 0 var(--space-6);
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 90;
+  box-shadow: var(--shadow-sm);
+}
+ 
+.umr-subnav-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.umr-subnav-inner::-webkit-scrollbar { display: none; }
+ 
+.umr-subnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color var(--transition), border-color var(--transition);
+  margin-bottom: -1px;
+}
+ 
+.umr-subnav-item:hover {
+  color: var(--color-text);
+  border-bottom-color: var(--color-border);
+}
+ 
+.umr-subnav-item.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+ 
+/* Мобильные */
+@media (max-width: 640px) {
+  .umr-subnav { padding: 0 var(--space-4); }
+  .umr-subnav-item { padding: var(--space-3) var(--space-3); }
+  .umr-subnav-item svg { display: none; }
+}
