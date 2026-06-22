@@ -302,69 +302,64 @@ function exportExcel() {
 })();
 
 /* ═══════════════════════════════════════════════════
-   QR-ФУНКЦИОНАЛ
+   QR-ФУНКЦИОНАЛ — брендированный QR внутри старого модального окна
    ═══════════════════════════════════════════════════ */
 
 /* Текущий тип QR: 'entry' или 'exit' */
 var _qrCurrentType = null;
+var _qrLogoSrc = 'assets/svgtk-logo.png';
+
+function getQRConfig(type) {
+  var isEntry = type === 'entry';
+  return {
+    type: isEntry ? 'entry' : 'exit',
+    label: isEntry ? 'ВХОД' : 'ВЫХОД',
+    title: isEntry ? 'QR-код — Вход' : 'QR-код — Выход',
+    subtitle: isEntry ? 'Студент сканирует для отметки входа' : 'Студент сканирует для отметки выхода',
+    cardTitle: isEntry ? 'Отметка входа' : 'Отметка выхода',
+    cardSubtitle: isEntry ? 'Сканируйте код для регистрации прихода' : 'Сканируйте код для регистрации ухода',
+    filename: isEntry ? 'svgtk-qr-entry.png' : 'svgtk-qr-exit.png',
+    url: isEntry ? 'https://portal-svgtk.ru/qr/entry.html' : 'https://portal-svgtk.ru/qr/exit.html',
+    // Вход и выход выполнены в одном синем стиле
+    color: '#1a56db',
+    color2: '#2563eb'
+  };
+}
 
 /**
- * Открыть модал с QR-кодом.
+ * Открыть старое модальное окно, но сформировать внутри него новый дизайн QR.
  * @param {'entry'|'exit'} type
  */
 function showQRModal(type) {
-  var isEntry = type === 'entry';
-  var color   = isEntry ? '#1a56db' : '#7c3aed';
-  var title   = isEntry ? 'QR-код — Вход'                      : 'QR-код — Выход';
-  var subtitle= isEntry ? 'Студент сканирует для отметки входа' : 'Студент сканирует для отметки выхода';
-  var filename= isEntry ? 'qr-entry.png'                        : 'qr-exit.png';
+  var cfg = getQRConfig(type);
+  _qrCurrentType = cfg.type;
 
-  /* URL для QR: фиксированные адреса страниц входа и выхода */
-  var url = isEntry
-    ? 'https://portal-svgtk.ru/qr/entry.html'
-    : 'https://portal-svgtk.ru/qr/exit.html';
-
-  /* Обновить шапку модала */
-  var titleEl2 = document.getElementById('qrModalTitle');
-  var subEl2   = document.getElementById('qrModalSub');
-  if (titleEl2) titleEl2.textContent = title;
-  if (subEl2)   subEl2.textContent   = subtitle;
-
-  var headEl = document.getElementById('qrModalHead');
-  if (headEl) {
-    headEl.style.background = isEntry
-      ? 'linear-gradient(135deg,#1a56db,#2563eb)'
-      : 'linear-gradient(135deg,#7c3aed,#8b5cf6)';
-  }
-
-  /* Показать URL под QR */
+  var titleEl = document.getElementById('qrModalTitle');
+  var subEl = document.getElementById('qrModalSub');
   var urlEl = document.getElementById('qrModalUrl');
-  if (urlEl) urlEl.textContent = url;
-
-  /* Если тип сменился — очистить контейнер */
+  var headEl = document.getElementById('qrModalHead');
   var container = document.getElementById('qrContainer');
-  if (!container) return;
-  if (_qrCurrentType !== type) {
-    container.innerHTML = '';
-    _qrCurrentType = type;
+  var dlBtn = document.getElementById('qrModalDownload');
 
-    /* Проверить библиотеку */
-    if (typeof QRCode === 'undefined') {
-      container.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:8px">'
-        + 'QRCode.js не загружен.<br>Убедись, что CDN-скрипт идёт ДО journal.js</p>';
-    } else {
-      new QRCode(container, {
-        text:         url,
-        width:        220,
-        height:       220,
-        colorDark:    color,
-        colorLight:   '#ffffff',
-        correctLevel: QRCode.CorrectLevel.H
-      });
-    }
+  if (titleEl) titleEl.textContent = cfg.title;
+  if (subEl) subEl.textContent = cfg.subtitle;
+  if (urlEl) urlEl.textContent = cfg.url;
+
+  if (headEl) {
+    headEl.style.background = 'linear-gradient(135deg,' + cfg.color + ',' + cfg.color2 + ')';
   }
 
-  /* Открыть модал — и через style и через класс, чтобы точно сработало */
+  if (dlBtn) {
+    dlBtn.href = '#';
+    dlBtn.download = cfg.filename;
+    dlBtn.style.background = cfg.color;
+    dlBtn.style.borderColor = cfg.color;
+  }
+
+  if (!container) return;
+  container.innerHTML = '<div style="width:250px; min-height:292px; display:flex; align-items:center; justify-content:center; text-align:center; color:var(--color-text-muted); font-size:13px; line-height:1.4;">Формируем QR-код…</div>';
+
+  /* Открыть старый модал. Внешнее окно и его оформление остаются прежними. */
   var bg = document.getElementById('qrModalBg');
   if (bg) {
     bg.style.display        = 'flex';
@@ -378,26 +373,187 @@ function showQRModal(type) {
     bg.classList.add('open');
   }
 
-  /* Обновить цвет шапки инлайн (надёжнее чем CSS-класс) */
-  var headEl2 = document.getElementById('qrModalHead');
-  if (headEl2) {
-    headEl2.style.background = isEntry
-      ? 'linear-gradient(135deg,#1a56db,#2563eb)'
-      : 'linear-gradient(135deg,#7c3aed,#8b5cf6)';
+  if (typeof QRCode === 'undefined') {
+    container.innerHTML = '<p style="color:#dc2626;font-size:13px;text-align:center;padding:8px">'
+      + 'QRCode.js не загружен.<br>Убедись, что CDN-скрипт идёт ДО journal.js</p>';
+    return;
   }
 
-  /* Кнопка «Скачать PNG» — ждём рендера canvas (~350 мс) */
-  var dlBtn = document.getElementById('qrModalDownload');
-  if (dlBtn) {
-    dlBtn.style.background = color;
-    setTimeout(function () {
-      var canvas = container.querySelector('canvas');
-      if (canvas) {
-        dlBtn.href     = canvas.toDataURL('image/png');
-        dlBtn.download = filename;
-      }
-    }, 400);
+  renderBrandedQR(cfg, function (canvas) {
+    if (_qrCurrentType !== cfg.type) return;
+    canvas.style.width = '250px';
+    canvas.style.maxWidth = '100%';
+    canvas.style.height = 'auto';
+    canvas.style.display = 'block';
+    canvas.style.borderRadius = '18px';
+
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    if (dlBtn) {
+      dlBtn.href = canvas.toDataURL('image/png');
+      dlBtn.download = cfg.filename;
+    }
+  });
+}
+
+function renderBrandedQR(cfg, done) {
+  var tmp = document.createElement('div');
+  tmp.style.position = 'fixed';
+  tmp.style.left = '-10000px';
+  tmp.style.top = '-10000px';
+  tmp.style.width = '420px';
+  tmp.style.height = '420px';
+  tmp.style.overflow = 'hidden';
+  document.body.appendChild(tmp);
+
+  new QRCode(tmp, {
+    text: cfg.url,
+    width: 420,
+    height: 420,
+    colorDark: cfg.color,
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+
+  setTimeout(function () {
+    var qrCanvas = tmp.querySelector('canvas');
+    var qrImg = tmp.querySelector('img');
+
+    loadQRLogo(function (logo) {
+      var canvas = drawQRCard(qrCanvas || qrImg, logo, cfg);
+      if (tmp.parentNode) tmp.parentNode.removeChild(tmp);
+      done(canvas);
+    });
+  }, 100);
+}
+
+function loadQRLogo(callback) {
+  var img = new Image();
+  img.onload = function () { callback(img); };
+  img.onerror = function () { callback(null); };
+  img.src = _qrLogoSrc;
+}
+
+function drawQRCard(qrSource, logo, cfg) {
+  var canvas = document.createElement('canvas');
+  var w = 600;
+  var h = 740;
+  canvas.width = w;
+  canvas.height = h;
+
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  /* Основная карточка без лишних плашек, точек и синей декоративной рамки */
+  ctx.save();
+  ctx.shadowColor = 'rgba(15, 23, 42, .14)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 12;
+  fillRoundRect(ctx, 22, 22, w - 44, h - 44, 28, '#eef3f9');
+  ctx.restore();
+
+  var bgGrad = ctx.createLinearGradient(22, 22, w - 22, h - 22);
+  bgGrad.addColorStop(0, '#f8fafc');
+  bgGrad.addColorStop(.58, '#eef3f9');
+  bgGrad.addColorStop(1, '#e4ebf5');
+  fillRoundRect(ctx, 22, 22, w - 44, h - 44, 28, bgGrad);
+
+  /* Логотип */
+  ctx.save();
+  ctx.shadowColor = 'rgba(15, 23, 42, .10)';
+  ctx.shadowBlur = 13;
+  ctx.shadowOffsetY = 6;
+  fillRoundRect(ctx, 58, 50, 98, 98, 18, '#ffffff');
+  ctx.restore();
+  strokeRoundRect(ctx, 58, 50, 98, 98, 18, 'rgba(203,213,225,.85)', 1.3);
+
+  if (logo) {
+    drawImageContain(ctx, logo, 70, 60, 74, 78);
+  } else {
+    ctx.fillStyle = cfg.color;
+    ctx.font = '700 23px Montserrat, Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('СВГТК', 107, 109);
   }
+
+  /* Заголовок без подписи QR-посещаемости и без плашки ВХОД/ВЫХОД */
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 29px Montserrat, Inter, sans-serif';
+  ctx.fillText('СВГТК', 178, 103);
+
+  /* Панель QR */
+  ctx.save();
+  ctx.shadowColor = 'rgba(15, 23, 42, .13)';
+  ctx.shadowBlur = 22;
+  ctx.shadowOffsetY = 10;
+  fillRoundRect(ctx, 64, 168, 472, 472, 24, '#ffffff');
+  ctx.restore();
+  strokeRoundRect(ctx, 64, 168, 472, 472, 24, 'rgba(203,213,225,.9)', 1.2);
+
+  if (qrSource) {
+    ctx.drawImage(qrSource, 94, 198, 412, 412);
+  } else {
+    ctx.fillStyle = '#dc2626';
+    ctx.font = '600 19px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('QR не сформирован', w / 2, 414);
+  }
+
+  /* Нижняя подпись — без длинной URL-плашки, чтобы карточка не выглядела обрезанной */
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 23px Montserrat, Inter, sans-serif';
+  ctx.fillText(cfg.cardTitle, w / 2, 665);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '500 14px Inter, sans-serif';
+  ctx.fillText(cfg.cardSubtitle, w / 2, 688);
+
+  return canvas;
+}
+
+function fillRoundRect(ctx, x, y, w, h, r, fillStyle) {
+  roundedPath(ctx, x, y, w, h, r);
+  ctx.fillStyle = fillStyle;
+  ctx.fill();
+}
+
+function strokeRoundRect(ctx, x, y, w, h, r, strokeStyle, lineWidth) {
+  roundedPath(ctx, x, y, w, h, r);
+  ctx.strokeStyle = strokeStyle;
+  ctx.lineWidth = lineWidth || 1;
+  ctx.stroke();
+}
+
+function roundedPath(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawImageContain(ctx, img, x, y, w, h) {
+  var iw = img.naturalWidth || img.width;
+  var ih = img.naturalHeight || img.height;
+  var scale = Math.min(w / iw, h / ih);
+  var dw = iw * scale;
+  var dh = ih * scale;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+function hexToRgba(hex, alpha) {
+  var c = hex.replace('#', '');
+  var bigint = parseInt(c, 16);
+  var r = (bigint >> 16) & 255;
+  var g = (bigint >> 8) & 255;
+  var b = bigint & 255;
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
 }
 
 function closeQRModal() {
@@ -415,7 +571,6 @@ function closeQRModal() {
 
 /* Закрытие по клику на тёмный фон и по Escape */
 (function () {
-  /* Ждём загрузки DOM */
   function attachQREvents() {
     var bg = document.getElementById('qrModalBg');
     if (bg) {
@@ -433,29 +588,31 @@ function closeQRModal() {
     if (e.key === 'Escape') closeQRModal();
   });
 })();
+
 /* ══════════════════════════════════════════════════
    Динамические стили: тёмная тема для QR-модала
-   Вставляется в <head> при загрузке journal.js
    ══════════════════════════════════════════════════ */
 (function injectQRStyles() {
   var style = document.createElement('style');
   style.textContent = [
-    /* Тёмная тема — фон модала */
+    '#qrModalBg > div {',
+    '  border-color: transparent !important;',
+    '}',
+    '#qrModalBg > div > div:nth-child(2) > div {',
+    '  border-color: transparent !important;',
+    '}',
     '[data-theme="dark"] #qrModalBg > div {',
     '  background: var(--color-surface) !important;',
-    '  border-color: var(--color-border) !important;',
     '}',
-    /* Тёмная тема — область QR */
     '[data-theme="dark"] #qrModalBg > div > div:nth-child(2) {',
     '  background: var(--color-surface) !important;',
     '}',
     '[data-theme="dark"] #qrModalBg > div > div:nth-child(3) {',
     '  background: var(--color-surface) !important;',
     '}',
-    /* Кнопки page-actions — единый hover */
     '.page-actions .btn { transition: opacity .18s, transform .18s, box-shadow .18s; }',
     '.page-actions .btn:hover { opacity: .87; box-shadow: 0 4px 12px rgba(30,41,59,.18); transform: translateY(-1px); }',
-    '.page-actions .btn:active { transform: translateY(0); opacity: 1; }',
+    '.page-actions .btn:active { transform: translateY(0); opacity: 1; }'
   ].join('\n');
   document.head.appendChild(style);
 })();
