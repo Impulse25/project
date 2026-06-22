@@ -24,83 +24,17 @@
 </head>
 <body>
 
-<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <div class="logo">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-        <rect width="32" height="32" rx="8" fill="#1a56db"/>
-        <text x="16" y="22" text-anchor="middle" font-family="Montserrat,sans-serif" font-weight="700" font-size="13" fill="white">СП</text>
-      </svg>
-      <div class="logo-text">
-        <span class="logo-title">СВГТК Портал</span>
-        <span class="logo-sub">Посещаемость</span>
-      </div>
-    </div>
-    <button class="sidebar-toggle" id="sidebarToggle">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
-  </div>
-  <nav class="sidebar-nav">
-    <div class="nav-section-label">Навигация</div>
-    <a href="../" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      <span>Главная</span>
-    </a>
-    <div class="nav-section-label" style="margin-top:1rem">Модули портала</div>
-    <a href="../edu/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      <span>Учебный процесс</span>
-    </a>
-    <a href="./index.php" class="nav-item active">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <span>Посещаемость</span>
-    </a>
-    <a href="../achievements/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
-      <span>Достижения</span>
-    </a>
-    <a href="../umr/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-      <span>УМР</span>
-    </a>
-    <a href="../hr/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-      <span>HR-аналитика</span>
-    </a>
-    <a href="../analytics/" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      <span>Аналитика</span>
-    </a>
-    <div class="nav-section-label" style="margin-top:1rem">Заявки в ИТ</div>
-    <a href="../requests/teacher_dashboard.php" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span>Мои заявки</span>
-    </a>
-    <?php if ($isAdmin): ?>
-    <div class="nav-section-label" style="margin-top:1rem">Администрирование</div>
-    <a href="../requests/admin_dashboard.php" class="nav-item">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-      <span>Дашборд админа</span>
-    </a>
-    <?php endif ?>
-  </nav>
-  <div class="sidebar-footer">
-    <div class="college-info">
-      <span>СВГТК им. Абая Кунанбаева</span>
-      <span>г. Сарань</span>
-    </div>
-  </div>
-</aside>
+<?php
+$activeModule = 'attendance';
+$moduleTitle  = 'Посещаемость';
+require_once __DIR__ . '/../includes/portal_sidebar.php';
+?>
 
 <!-- ═══════════════════════ MAIN ═══════════════════════════ -->
 <div class="main-wrapper" id="mainWrapper">
 
   <header class="topbar">
     <div class="topbar-left">
-      <button class="mobile-menu-btn" id="mobileMenuBtn">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
       <div class="breadcrumb">
         <span class="breadcrumb-root"><a href="../" style="color:inherit">СВГТК</a></span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
@@ -108,18 +42,6 @@
       </div>
     </div>
     <div class="topbar-right">
-<a href="help.php" target="_blank"
-   class="btn btn-outline btn-sm"
-   title="Справочная система — помощь по модулю">
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" stroke-width="2"
-       stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-    <line x1="12" y1="17" x2="12.01" y2="17"/>
-  </svg>
-  Помощь
-</a>
       <div class="user-avatar" title="<?= htmlspecialchars($userName) ?>"><?= $initials ?></div>
       <?php if ($isAdmin): ?>
       <a href="../requests/admin_dashboard.php" class="btn btn-outline btn-sm">
@@ -164,25 +86,7 @@ document.addEventListener('DOMContentLoaded', function() {
   showToast('✓ Журнал сохранён');
 <?php endif ?>
 
-  // ── Sidebar ────────────────────────────────────────────────────
-  const sidebar     = document.getElementById('sidebar');
-  const mainWrapper = document.getElementById('mainWrapper');
-
-  document.getElementById('sidebarToggle')?.addEventListener('click', () => {
-    sidebar?.classList.toggle('collapsed');
-    mainWrapper?.classList.toggle('sidebar-collapsed');
-  });
-  document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
-    sidebar?.classList.toggle('mobile-open');
-  });
-
-  // ── Переключение темы ──────────────────────────────────────────
-  document.getElementById('themeToggle')?.addEventListener('click', () => {
-    const html = document.documentElement;
-    const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-  });
+  // sidebar + theme: обрабатывает portal_sidebar.php
 
 }); // end DOMContentLoaded
 
@@ -195,8 +99,6 @@ function switchTab(name) {
   // Сохраняем текущие параметры если их нет
   if (!url.searchParams.get('group')) url.searchParams.set('group', '<?= (int)$selectedGrp ?>');
   if (!url.searchParams.get('date'))  url.searchParams.set('date',  '<?= htmlspecialchars($selectedDate) ?>');
-  if (!url.searchParams.get('mode'))  url.searchParams.set('mode',  '<?= htmlspecialchars($attendanceMode ?? 'teacher') ?>');
-  if (!url.searchParams.get('semester_id')) url.searchParams.set('semester_id', '<?= (int)$selectedSemesterId ?>');
   if (name === 'report' && !url.searchParams.get('month')) {
     url.searchParams.set('month', '<?= htmlspecialchars($reportMonth) ?>');
   }
@@ -280,16 +182,8 @@ function saveAttendance() {
   if (rows.length === 0) { showToast('Нет студентов для сохранения', 'error'); return; }
 
   const currentUrl   = new URL(window.location.href);
-  // Берём значения из полей формы, а не только из URL.
-  // Важно: PHP может автоматически поправить дату под выбранный семестр,
-  // а в URL ещё может остаться старая дата из другого семестра.
-  const dateField     = document.querySelector('input[name="date"]');
-  const groupField    = document.querySelector('select[name="group"]');
-  const semesterField = document.querySelector('select[name="semester_id"]');
-
-  const currentDate  = dateField?.value || '<?= htmlspecialchars($selectedDate) ?>';
-  const currentGroup = groupField?.value || currentUrl.searchParams.get('group') || '<?= (int)$selectedGrp ?>';
-  const currentSemester = semesterField?.value || currentUrl.searchParams.get('semester_id') || '<?= (int)$selectedSemesterId ?>';
+  const currentDate  = currentUrl.searchParams.get('date')  || '<?= htmlspecialchars($selectedDate) ?>';
+  const currentGroup = currentUrl.searchParams.get('group') || '<?= (int)$selectedGrp ?>';
 
   const btn = document.getElementById('saveBtn');
   if (btn) btn.innerHTML = '⏳ Сохранение...';
@@ -297,7 +191,7 @@ function saveAttendance() {
   fetch('save.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date: currentDate, group_id: currentGroup, semester_id: currentSemester, rows })
+    body: JSON.stringify({ date: currentDate, group_id: currentGroup, rows })
   })
   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
   .then(d => {
@@ -307,7 +201,6 @@ function saveAttendance() {
       url.searchParams.set('tab',   'journal');
       url.searchParams.set('group', currentGroup);
       url.searchParams.set('date',  currentDate);
-      url.searchParams.set('semester_id', currentSemester);
       url.searchParams.set('saved', '1');
       window.location.replace(url.toString());
     } else {
