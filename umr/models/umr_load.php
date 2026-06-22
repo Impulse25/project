@@ -19,11 +19,12 @@ class umr_load extends baseModel
     public function getYearsForTeacher(int $teacherId): array
     {
         $stmt = $this->pdo->prepare("
-            SELECT DISTINCT g.year_started
+            SELECT DISTINCT
+                g.year_started + FLOOR((ta.semester_num - 1) / 2) AS academic_year
             FROM umr_teacher_assignments ta
             JOIN edu_groups g ON g.id = ta.group_id
             WHERE ta.teacher_id = ?
-            ORDER BY g.year_started DESC
+            ORDER BY academic_year DESC
         ");
         $stmt->execute([$teacherId]);
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
