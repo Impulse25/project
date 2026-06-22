@@ -220,6 +220,7 @@ function sortLink(int $year, int $teacherId, string $dir): string {
   <?php
     $_breadcrumbs = ['УМР' => null, 'Нагрузка' => null];
     require_once BASE_PATH . '/partials/topbar.php';
+    require_once BASE_PATH . '/partials/umr_subnav.php';
   ?>
   <main class="page-content">
 
