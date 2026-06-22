@@ -281,6 +281,7 @@ $canExport = $showAsManager;
   <?php
     $_breadcrumbs = ['УМР' => null, 'Журнал регистрации' => null];
     require_once BASE_PATH . '/partials/topbar.php';
+    require_once BASE_PATH . '/partials/umr_subnav.php';
   ?>
   <main class="page-content">
 
