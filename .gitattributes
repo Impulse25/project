@@ -1,0 +1,2 @@
+# Exclude vendor directories from GitHub language statistics
+edu/vendor/** linguist-vendored
