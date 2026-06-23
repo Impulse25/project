@@ -441,7 +441,7 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
           </div>
           <div>
             <div class="aside-card-title">Команда разработчиков</div>
-            <div class="aside-card-date">Группа ИС-23 · СВГТК</div>
+            <div class="aside-card-date">Группа ПВТ-9-22 · СВГТК</div>
           </div>
         </div>
 
