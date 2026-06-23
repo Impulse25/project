@@ -22,7 +22,7 @@ switch (APP_ENV) {
     case 'hosting':
         define('DB_HOST', 'localhost');
         define('DB_USER', 'p-355792_svgtk');
-        define('DB_PASS', '6btcy2iFPUGKV2N');
+        define('DB_PASS', getenv('DB_PASS') ?: '');
         define('DB_NAME', 'p-355792_svgtk');
         define('LDAP_ACTIVE', false);
         break;
