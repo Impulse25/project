@@ -194,6 +194,7 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
   font-size:.75rem;font-weight:600;padding:3px 10px;border-radius:var(--radius-full)}
 .status-active{background:var(--color-success-highlight);color:var(--color-success)}
 .status-dev{background:var(--color-warning-highlight);color:var(--color-warning)}
+.status-done{background:#dbeafe;color:#1a56db}
 .status-plan{background:var(--color-surface-offset);color:var(--color-text-faint)}
 
 /* ── Hero ── */
@@ -351,14 +352,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#dbeafe;color:#1a56db">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для управления учебным процессом в системе «СВГТК Портал»</div>
           <div class="module-desc">БД РУПл + Загрузка РУПл на группу; формирование ведомостей за семестр, по предмету, по весь период обучения (8 семестров), личная карточка, дипломная книга; шаблон для заполнения дипломов и приложений; выгрузка по студентам (по критериям)</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Ломакин Александр</span>
+          <span class="module-student">Ломакин Александр · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -370,14 +371,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#dcfce7;color:#16a34a">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для учёта посещаемости в системе «СВГТК Портал»</div>
           <div class="module-desc">БД Студенты (НОБД), Рапортички за неделя, месяц, за указанный срок; подсчет часов по уважительной и неуваж причине, прикрепление справок; отчет по критериям, печать с программы, выгрузка Excel (студенты просмотр, преподаватели редактор)</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Базарбаев Рахат</span>
+          <span class="module-student">Базарбаев Рахат · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -389,14 +390,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#cffafe;color:#0891b2">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3z"/><path d="M17 17h3v3h-3z"/><path d="M14 20h3"/><path d="M20 14v3"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для учёта посещаемости студентов с использованием QR-кодов в системе «СВГТК Портал»</div>
           <div class="module-desc">(на входе, на выход; данные с турникета; выгрузка по критериям; и сверка «Рапортичками - Рахата»)</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Буланков Андрей</span>
+          <span class="module-student">Буланков Андрей · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -408,14 +409,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#fef9c3;color:#ca8a04">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для учёта достижений в системе «СВГТК Портал»</div>
           <div class="module-desc">Считывать сертификат пдф (курсов, конкурсов и т.п.) для студентов и преподавателей, выгрузка по критериям (кабинет преподавателя).</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Бекболсынов Алмас</span>
+          <span class="module-student">Бекболсынов Алмас · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -427,14 +428,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#ede9fe;color:#7c3aed">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для учёта учебно-методической работы в системе «СВГТК Портал»</div>
           <div class="module-desc">На основе РУПл- Ломакина: загрузка РУПов ворд(модуль) преподавателями согласно РУПЛ Ломакина, по ПЦК с ведением общего журнала регистрации, с выгрузкой по критериям; Журнал нагрузки на учебный год/семестр (по критериям</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Голоднев Евгений</span>
+          <span class="module-student">Голоднев Евгений · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -446,14 +447,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#fce7f3;color:#db2777">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения для HR-аналитики в системе «СВГТК Портал»</div>
           <div class="module-desc">трудоустройство куратор прикрепляет справки, и визуализация по критериям.</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Ворожейкин Данил </span>
+          <span class="module-student">Ворожейкин Данил · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
@@ -465,17 +466,45 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="module-icon" style="background:#e0f2fe;color:#0284c7">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           </div>
-          <span class="module-status status-dev">В разработке</span>
+          <span class="module-status status-done">Завершено · 23.06.2026</span>
         </div>
         <div>
           <div class="module-name">Разработка приложения аналитики и отчётности в системе «СВГТК Портал»</div>
           <div class="module-desc">Сводные отчёты по всем модулям, графики успеваемости, посещаемости и активности.</div>
         </div>
         <div class="module-footer">
-          <span class="module-student">Пушкарев Артур </span>
+          <span class="module-student">Пушкарев Артур · v1.0</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
       </a>
+
+      <!-- Обновления 23.06.2026 — Бубнов Андрей -->
+      <div class="module-card" style="cursor:default">
+        <div class="module-card-accent" style="background:#0f766e"></div>
+        <div class="module-top">
+          <div class="module-icon" style="background:#ccfbf1;color:#0f766e">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <span class="module-status status-active">23.06.2026</span>
+        </div>
+        <div>
+          <div class="module-name">Обновления портала — 23.06.2026</div>
+          <div class="module-desc" style="line-height:1.7">
+            — Единый сайдбар portal_sidebar.php для всех модулей<br>
+            — Унификация навигации: единые роли, мобильная адаптация<br>
+            — Исправление суб-навигации УМР (pill-кнопки)<br>
+            — Исправление $role undefined в модуле Аналитика<br>
+            — Безопасность: авторизация в QR-модуле (было открыто)<br>
+            — Безопасность: CSRF-защита в модуле Заявки (8 обработчиков)<br>
+            — Безопасность: ограничение доступа к медицинским документам<br>
+            — Безопасность: защита от Open Redirect на главной странице
+          </div>
+        </div>
+        <div class="module-footer">
+          <span class="module-student">Бубнов Андрей</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-faint)"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </div>
 
       <!-- Заявки в ИТ -->
       <a href="#" data-href="/requests/" onclick="handleCardClick(this, event)" class="module-card">
