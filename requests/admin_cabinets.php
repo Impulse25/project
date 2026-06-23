@@ -18,17 +18,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'])) {
         $pdo->prepare("INSERT INTO departments (department_name,description) VALUES (?,?)")->execute([$_POST['department_name'],$_POST['description']??'']);
         header('Location: admin_cabinets.php?success=department_added'); exit();
     }
-}
-if (isset($_GET['delete_cabinet'])) {
-    $pdo->prepare("DELETE FROM cabinets WHERE id=?")->execute([(int)$_GET['delete_cabinet']]);
-    header('Location: admin_cabinets.php?success=cabinet_deleted'); exit();
-}
-if (isset($_GET['delete_department'])) {
-    $id=(int)$_GET['delete_department'];
-    $stmt=$pdo->prepare("SELECT COUNT(*) FROM cabinets WHERE department_id=?"); $stmt->execute([$id]);
-    if($stmt->fetchColumn()>0){ header('Location: admin_cabinets.php?error=department_has_cabinets'); exit(); }
-    $pdo->prepare("DELETE FROM departments WHERE id=?")->execute([$id]);
-    header('Location: admin_cabinets.php?success=department_deleted'); exit();
+    if ($_POST['action']==='delete_cabinet') {
+        $pdo->prepare("DELETE FROM cabinets WHERE id=?")->execute([(int)($_POST['id']??0)]);
+        header('Location: admin_cabinets.php?success=cabinet_deleted'); exit();
+    }
+    if ($_POST['action']==='delete_department') {
+        $id=(int)($_POST['id']??0);
+        $stmt=$pdo->prepare("SELECT COUNT(*) FROM cabinets WHERE department_id=?"); $stmt->execute([$id]);
+        if($stmt->fetchColumn()>0){ header('Location: admin_cabinets.php?error=department_has_cabinets'); exit(); }
+        $pdo->prepare("DELETE FROM departments WHERE id=?")->execute([$id]);
+        header('Location: admin_cabinets.php?success=department_deleted'); exit();
+    }
 }
 
 try { $allDepartments=$pdo->query("SELECT * FROM departments ORDER BY department_name ASC")->fetchAll(); } catch(Exception $e){ $allDepartments=[]; }
@@ -831,11 +831,11 @@ require_once __DIR__ . '/includes/sidebar.php';
                                         <?php endif; ?>
                                     </div>
                                 </div>
-                                <a href="?tab=cabinets&delete_department=<?php echo $dept['id']; ?>" 
-                                   onclick="return confirm('Удалить отделение <?php echo $dept['department_name']; ?>?')" 
-                                   class="text-white hover:text-red-200 transition">
+                                <button type="button"
+                                   onclick="confirmDeletePost('delete_department',<?php echo (int)$dept['id']; ?>,'Удалить отделение <?php echo htmlspecialchars(addslashes($dept['department_name']),ENT_QUOTES); ?>?')"
+                                   class="text-white hover:text-red-200 transition bg-transparent border-0 cursor-pointer">
                                     <i class="fas fa-trash"></i>
-                                </a>
+                                </button>
                             </div>
                             
                             <!-- Кабинеты отделения -->
@@ -856,11 +856,11 @@ require_once __DIR__ . '/includes/sidebar.php';
                                         <?php foreach ($deptCabinets as $cab): ?>
                                             <div class="relative bg-gray-50 border-2 border-indigo-200 rounded-lg p-4 hover:border-indigo-400 hover:shadow-md transition text-center group">
                                                 <div class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition">
-                                                    <a href="?tab=cabinets&delete_cabinet=<?php echo $cab['id']; ?>" 
-                                                       onclick="return confirm('Удалить кабинет <?php echo $cab['cabinet_number']; ?>?')" 
-                                                       class="text-red-600 hover:text-red-700 text-xs">
+                                                    <button type="button"
+                                                       onclick="confirmDeletePost('delete_cabinet',<?php echo (int)$cab['id']; ?>,'Удалить кабинет <?php echo htmlspecialchars(addslashes($cab['cabinet_number']),ENT_QUOTES); ?>?')"
+                                                       class="text-red-600 hover:text-red-700 text-xs bg-transparent border-0 cursor-pointer">
                                                         <i class="fas fa-times"></i>
-                                                    </a>
+                                                    </button>
                                                 </div>
                                                 <i class="fas fa-door-open text-3xl text-indigo-600 mb-2"></i>
                                                 <div class="font-bold text-gray-800"><?php echo $cab['cabinet_number']; ?></div>
@@ -898,11 +898,11 @@ require_once __DIR__ . '/includes/sidebar.php';
                                     <?php foreach ($cabinetsWithoutDept as $cab): ?>
                                         <div class="relative bg-gray-50 border-2 border-gray-300 rounded-lg p-4 hover:border-gray-400 hover:shadow-md transition text-center group">
                                             <div class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition">
-                                                <a href="?tab=cabinets&delete_cabinet=<?php echo $cab['id']; ?>" 
-                                                   onclick="return confirm('Удалить кабинет <?php echo $cab['cabinet_number']; ?>?')" 
-                                                   class="text-red-600 hover:text-red-700 text-xs">
+                                                <button type="button"
+                                                   onclick="confirmDeletePost('delete_cabinet',<?php echo (int)$cab['id']; ?>,'Удалить кабинет <?php echo htmlspecialchars(addslashes($cab['cabinet_number']),ENT_QUOTES); ?>?')"
+                                                   class="text-red-600 hover:text-red-700 text-xs bg-transparent border-0 cursor-pointer">
                                                     <i class="fas fa-times"></i>
-                                                </a>
+                                                </button>
                                             </div>
                                             <i class="fas fa-door-open text-3xl text-gray-600 mb-2"></i>
                                             <div class="font-bold text-gray-800"><?php echo $cab['cabinet_number']; ?></div>
@@ -1018,7 +1018,18 @@ require_once __DIR__ . '/includes/sidebar.php';
         </div>
     </div>  </main>
 </div>
+<form id="_deleteForm" method="POST" style="display:none">
+  <?= csrf_field() ?>
+  <input type="hidden" name="action" id="_deleteAction">
+  <input type="hidden" name="id"     id="_deleteId">
+</form>
 <script>
+function confirmDeletePost(action, id, msg) {
+  if (!confirm(msg)) return;
+  document.getElementById('_deleteAction').value = action;
+  document.getElementById('_deleteId').value = id;
+  document.getElementById('_deleteForm').submit();
+}
 const sidebar=document.getElementById('sidebar');
 const mainWrapper=document.getElementById('mainWrapper');
 document.getElementById('sidebarToggle').addEventListener('click',()=>{sidebar.classList.toggle('collapsed');mainWrapper.classList.toggle('sidebar-collapsed');});

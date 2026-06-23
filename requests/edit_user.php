@@ -228,7 +228,7 @@ $currentLang = getCurrentLanguage();
                 <i class="fas fa-user-edit text-3xl text-indigo-600"></i>
                 <div>
                     <h1 class="text-xl font-bold text-gray-800">Редактирование профиля</h1>
-                    <p class="text-sm text-gray-600"><?php echo $editUser['full_name']; ?></p>
+                    <p class="text-sm text-gray-600"><?php echo htmlspecialchars($editUser['full_name'], ENT_QUOTES, 'UTF-8'); ?></p>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -460,7 +460,7 @@ $currentLang = getCurrentLanguage();
                         <div>
                             <p class="text-sm text-gray-600">Текущая роль</p>
                             <p class="text-lg font-semibold text-gray-800">
-                                <?php echo $currentRoleName; ?>
+                                <?php echo htmlspecialchars($currentRoleName, ENT_QUOTES, 'UTF-8'); ?>
                             </p>
                         </div>
                     </div>

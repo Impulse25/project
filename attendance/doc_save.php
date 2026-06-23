@@ -28,7 +28,7 @@ $action     = $_POST['action'] ?? $_GET['action'] ?? '';
 // [ИСПРАВЛЕНИЕ #3] Вспомогательная функция: только куратор/администратор может
 // подтверждать и отклонять справки
 function requireCuratorOrAdmin(string $role): void {
-    $allowed = ['admin', 'director', 'curator'];
+    $allowed = ['admin', 'director', 'teacher'];
     if (!in_array($role, $allowed)) {
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(403);

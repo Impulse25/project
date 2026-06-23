@@ -27,7 +27,7 @@ $doc = $stmt->fetch();
 
 if (!$doc) { http_response_code(404); echo 'Документ не найден'; exit; }
 
-$path = __DIR__ . '/uploads/' . $doc['filename'];
+$path = __DIR__ . '/uploads/' . basename($doc['filename']);
 if (!file_exists($path)) { http_response_code(404); echo 'Файл не найден на сервере'; exit; }
 
 $mime     = $doc['mime_type'] ?: 'application/octet-stream';

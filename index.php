@@ -19,6 +19,7 @@ if (preg_match('~^([a-z][a-z0-9+.\-]*:)?//~i', $redirectTo)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'])) {
+    csrf_verify();
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
     $redirectTo = $_POST['redirect'] ?? '';
@@ -565,6 +566,7 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
     <div class="login-modal-title">Вход в систему</div>
     <div class="login-modal-sub" id="loginModalSub">Введите данные учётной записи</div>
     <form method="POST" action="/">
+      <?= csrf_field() ?>
       <?php if($loginError): ?>
         <div class="login-error"><?= htmlspecialchars($loginError) ?></div>
       <?php endif ?>

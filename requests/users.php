@@ -17,8 +17,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action']) && $_POST['ac
         isset($_POST['can_manage_cabinets'])?1:0,isset($_POST['can_view_all_requests'])?1:0]);
     header('Location: users.php?tab=roles&success=role_added'); exit();
 }
-if (isset($_GET['delete_role'])) {
-    $roleId=(int)$_GET['delete_role'];
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action']) && $_POST['action']==='delete_role') {
+    csrf_verify();
+    $roleId=(int)($_POST['id']??0);
     $stmt=$pdo->prepare("SELECT COUNT(*) FROM users WHERE role=(SELECT role_code FROM roles WHERE id=?)"); $stmt->execute([$roleId]);
     if($stmt->fetchColumn()>0){ header('Location: users.php?tab=roles&error=role_in_use'); exit(); }
     $pdo->prepare("DELETE FROM roles WHERE id=?")->execute([$roleId]);
@@ -870,7 +871,7 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
                                     <i class="fas fa-edit"></i>
                                 </a>
                                 <?php if (!in_array($role['role_code'], ['admin', 'director', 'teacher', 'technician'])): ?>
-                                    <a href="?tab=roles&delete_role=<?php echo $role['id']; ?>" onclick="return confirm('Удалить роль <?php echo $role['role_name_ru']; ?>?')" class="text-red-600 hover:text-red-700 text-lg" title="Удалить">
+                                    <button type="button" onclick="confirmRoleDelete(<?php echo (int)$role['id']; ?>,'<?php echo htmlspecialchars(addslashes($role['role_name_ru']),ENT_QUOTES); ?>')" class="text-red-600 hover:text-red-700 text-lg bg-transparent border-0 cursor-pointer p-0" title="Удалить">
                                         <i class="fas fa-trash"></i>
                                     </a>
                                 <?php endif; ?>
@@ -1035,7 +1036,17 @@ h1, h2, h3, h4 { text-wrap: balance; line-height: 1.2; }
         </div>
     </div>  </main>
 </div>
+<form id="_roleDeleteForm" method="POST" style="display:none">
+  <?= csrf_field() ?>
+  <input type="hidden" name="action" value="delete_role">
+  <input type="hidden" name="id" id="_roleDeleteId">
+</form>
 <script>
+function confirmRoleDelete(id, name) {
+  if (!confirm('Удалить роль ' + name + '?')) return;
+  document.getElementById('_roleDeleteId').value = id;
+  document.getElementById('_roleDeleteForm').submit();
+}
 const sidebar=document.getElementById('sidebar');
 const mainWrapper=document.getElementById('mainWrapper');
 document.getElementById('sidebarToggle').addEventListener('click',()=>{sidebar.classList.toggle('collapsed');mainWrapper.classList.toggle('sidebar-collapsed');});

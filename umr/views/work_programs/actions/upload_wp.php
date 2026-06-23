@@ -80,10 +80,17 @@ $mimeType = mime_content_type($file['tmp_name']);
 
 if (!in_array($mimeType, $allowed)) {
     echo json_encode([
-        'ok' => false, 
+        'ok' => false,
         'error' => 'Разрешены только файлы: PDF, DOC, DOCX, XLS, XLSX'
     ]);
     exit;
+}
+
+// Проверка расширения независимо от MIME
+$allowedExts = ['pdf', 'doc', 'docx', 'xls', 'xlsx'];
+$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+if (!in_array($ext, $allowedExts, true)) {
+    echo json_encode(['ok' => false, 'error' => 'Недопустимое расширение файла']); exit;
 }
 
 // Проверка размера (20 МБ)
@@ -101,7 +108,6 @@ if ($existCheck->fetch()) {
 }
 
 // Сохраняем файл
-$ext       = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 $safeName  = sprintf('wp_%d_%d_%s.%s', $assignmentId, time(), bin2hex(random_bytes(4)), $ext);
 $uploadDir = BASE_PATH . '/uploads/work_programs/';
 

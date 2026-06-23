@@ -9,6 +9,11 @@ if (!$isLoggedIn) {
     header('Location: /../requests/login.php');
     exit;
 }
+if (!$isAdmin) {
+    http_response_code(403);
+    echo '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Нет доступа</title></head><body style="font-family:sans-serif;text-align:center;padding:3rem"><h1 style="color:#dc2626">403 — Доступ запрещён</h1><p>Журнал QR-посещаемости доступен только администраторам и директору.</p><a href="/">← На главную</a></body></html>';
+    exit;
+}
 $nameParts  = explode(' ', trim($userName));
 $initials   = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), array_slice($nameParts,0,2)));
 
