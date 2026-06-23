@@ -52,6 +52,7 @@ $success = '';
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isProtected) {
+    csrf_verify();
     try {
         $setParts = ['role_name_ru=?', 'role_name_kk=?', 'description=?'];
         foreach ($allEditablePerms as $permKey) {

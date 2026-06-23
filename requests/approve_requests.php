@@ -10,6 +10,7 @@ if (!isLoggedIn() || $_SESSION['role'] !== 'director') {
 
 // Обработка одобрения/отклонения
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $request_id = $_POST['request_id'];
     $action = $_POST['action'];
     $priority = $_POST['priority'] ?? 'normal';

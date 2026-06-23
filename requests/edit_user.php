@@ -107,6 +107,7 @@ $error = '';
 
 // Обработка формы
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $username = $_POST['username'];
     $fullName = $_POST['full_name'];
     $role = $_POST['role'];

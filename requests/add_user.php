@@ -24,6 +24,7 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $username = $_POST['username'];
     $password = $_POST['password'];
     $fullName = $_POST['full_name'];

@@ -41,6 +41,7 @@ $error = '';
 
 // Обработка создания заявки
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $requestType = $_POST['request_type'];
     $fullName = $_POST['full_name'];
     $position = $_POST['position'];

@@ -15,6 +15,10 @@ $initials   = implode('', array_map(fn($p) => mb_strtoupper(mb_substr($p,0,1)), 
 
 $loginError = '';
 $redirectTo = $_GET['redirect'] ?? '';
+// Запрет внешних редиректов (open redirect protection)
+if (preg_match('~^([a-z][a-z0-9+.\-]*:)?//~i', $redirectTo)) {
+    $redirectTo = '';
+}
 
 // Обработка формы входа
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'])) {

@@ -14,6 +14,7 @@ $results = [];
 
 // Обработка загрузки файла
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['excel_file'])) {
+    csrf_verify();
     $file = $_FILES['excel_file'];
     
     $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));

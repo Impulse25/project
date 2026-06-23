@@ -220,6 +220,17 @@ if ($action === 'view') {
     $row = $rowStmt->fetch();
     if (!$row) { http_response_code(404); exit; }
 
+    // Доступ: только куратор группы или admin/director
+    $viewerRole = $_SESSION['role'] ?? '';
+    if (!in_array($viewerRole, ['admin', 'director'])) {
+        $accessCheck = $pdo->prepare("SELECT 1 FROM edu_groups WHERE id = ? AND curator_id = ?");
+        $accessCheck->execute([$row['group_id'], $_SESSION['user_id'] ?? 0]);
+        if (!$accessCheck->fetch()) {
+            http_response_code(403);
+            exit;
+        }
+    }
+
     $filePath = __DIR__ . '/uploads/documents/' . $row['file_name'];
     if (!file_exists($filePath)) { http_response_code(404); echo 'Файл не найден'; exit; }
 

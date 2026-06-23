@@ -8,6 +8,7 @@ if (isset($_GET['lang'])) { setLanguage($_GET['lang']); header('Location: admin_
 
 // Добавление кабинета
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['action'])) {
+    csrf_verify();
     if ($_POST['action']==='add_cabinet') {
         $deptId = ($_POST['department_id']===''||$_POST['department_id']==='0') ? null : $_POST['department_id'];
         $pdo->prepare("INSERT INTO cabinets (cabinet_number,description,department_id) VALUES (?,?,?)")->execute([$_POST['cabinet_number'],$_POST['description']??'',$deptId]);

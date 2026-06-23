@@ -22,8 +22,7 @@ $tab = $_GET['tab'] ?? 'active';
 
 // Обработка действий
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // ОТЛАДКА - удалите после проверки
-    error_log("POST REQUEST RECEIVED: " . print_r($_POST, true));
+    csrf_verify();
     
     $requestId = $_POST['request_id'] ?? null;
     $action = $_POST['action'] ?? null;

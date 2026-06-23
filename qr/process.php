@@ -1,5 +1,12 @@
 <?php
+session_start();
 header('Content-Type: application/json; charset=utf-8');
+
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Требуется авторизация']);
+    exit;
+}
 
 require_once __DIR__ . '/../config/db.php';
 
