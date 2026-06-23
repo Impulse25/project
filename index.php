@@ -446,6 +446,14 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
           </div>
         </div>
 
+        <div class="student-item" style="background:var(--color-primary-highlight);margin:0 -.25rem;padding:.5rem .25rem;border-radius:var(--radius-md);border-bottom:1px solid var(--color-divider)">
+          <div style="flex:1">
+            <div class="student-module" style="color:var(--color-primary)">Тимлид · Преподаватель</div>
+            <div class="student-name" style="color:var(--color-primary);font-weight:700">Бубнов Андрей</div>
+          </div>
+          <span style="font-size:.7rem;font-weight:600;background:var(--color-primary);color:#fff;padding:2px 8px;border-radius:var(--radius-full);white-space:nowrap">Lead</span>
+        </div>
+
         <div class="student-item">
           <div>
             <div class="student-module">Учебный процесс</div>
