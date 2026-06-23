@@ -124,9 +124,10 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
   white-space:nowrap;backdrop-filter:blur(4px)}
 
 /* ── Portal layout ── */
-.portal-layout{display:flex;gap:1.5rem;align-items:flex-start}
-.portal-main{flex:1;min-width:0}
-.portal-aside{width:288px;flex-shrink:0;display:flex;flex-direction:column;gap:1rem}
+.portal-layout{display:flex;flex-direction:column;gap:1.5rem}
+.portal-main{width:100%}
+.portal-aside{display:flex;flex-direction:row;gap:1rem}
+.portal-aside .aside-card{flex:1;min-width:0}
 
 /* ── Section title ── */
 .section-title{font-family:var(--font-display);font-size:1rem;font-weight:700;
@@ -223,11 +224,8 @@ button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
   transition:background var(--transition)}
 .login-close:hover{background:var(--color-surface-offset)}
 
-@media(max-width:1024px){
-  .portal-layout{flex-direction:column}
-  .portal-aside{width:100%}
-}
 @media(max-width:640px){
+  .portal-aside{flex-direction:column}
   .hero{padding:1.25rem 1.5rem}
   .modules-grid{grid-template-columns:1fr}
   .page-content{padding:1rem}
