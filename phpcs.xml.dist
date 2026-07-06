@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<ruleset name="ProjectStandard">
+    <description>PSR-12 code style checks for the project's PHP files.</description>
+
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg value="p"/>
+
+    <file>.</file>
+
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/uploads/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+
+    <rule ref="PSR12"/>
+</ruleset>

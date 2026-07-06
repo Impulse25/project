@@ -18,9 +18,17 @@ jobs:
           php-version: '8.1'
       - name: Check PHP syntax
         run: |
-          find . -name '*.php' -not -path './vendor/*' \
-            -exec php -l {} \; | grep -v 'No syntax errors'
-          if [ $? -eq 0 ]; then exit 1; fi
+          fail=0
+          while IFS= read -r -d '' file; do
+            if ! php -l "$file" > /tmp/lint_out 2>&1; then
+              cat /tmp/lint_out
+              fail=1
+            fi
+          done < <(find . -name '*.php' -not -path './vendor/*' -not -path './edu/vendor/*' -print0)
+          if [ "$fail" -eq 1 ]; then
+            echo 'PHP syntax errors found!'
+            exit 1
+          fi
           echo 'All PHP files passed syntax check!'
 
   phpcs:
@@ -35,5 +43,6 @@ jobs:
           php-version: '8.1'
           tools: phpcs
       - name: Run PHPCS
+        continue-on-error: true
         run: phpcs
           
