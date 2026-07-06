@@ -247,6 +247,33 @@ function requireLogin(): void {
         header('Location: index.php');
         exit();
     }
+    refreshSessionRole();
+}
+
+// Подтягивает актуальные роль/данные пользователя из БД на каждый защищённый
+// запрос. Без этого смена роли администратором применялась бы только после
+// повторного логина, а закешированные права ($_SESSION['permissions']) могли
+// остаться устаревшими у самого пользователя, чью роль поменяли.
+function refreshSessionRole(): void {
+    global $pdo;
+    if (!($pdo instanceof PDO) || !isLoggedIn()) {
+        return;
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT role, full_name, position FROM users WHERE id = ?");
+        $stmt->execute([$_SESSION['user_id']]);
+        $u = $stmt->fetch();
+        if ($u) {
+            if (($_SESSION['role'] ?? null) !== $u['role']) {
+                unset($_SESSION['permissions']);
+            }
+            $_SESSION['role']      = $u['role'];
+            $_SESSION['full_name'] = $u['full_name'];
+            $_SESSION['position']  = $u['position'] ?? '';
+        }
+    } catch (PDOException $e) {
+        error_log("AUTH refresh error: " . $e->getMessage());
+    }
 }
 
 function requireRole(string $role): void {
@@ -272,8 +299,15 @@ function redirectToDashboard(): void {
             header('Location: technician_dashboard.php');
             break;
         case 'teacher':
-        default:
             header('Location: teacher_dashboard.php');
+            break;
+        default:
+            // Роль неизвестна этому модулю (например 'student' из achievements/,
+            // которая делит с requests/ общую сессию). Простой редирект на
+            // index.php зациклился бы: index.php для залогиненного пользователя
+            // сам вызывает redirectToDashboard(). Поэтому сессию рвём явно.
+            logout();
+            header('Location: index.php');
             break;
     }
     exit();

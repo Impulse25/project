@@ -28,14 +28,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? null;
     
     if ($action === 'take_to_work') {
-        // Взять заявку в работу
-        $stmt = $pdo->prepare("UPDATE requests SET status = 'in_progress', assigned_to = ?, assigned_at = NOW(), started_at = NOW() WHERE id = ?");
+        // Взять заявку в работу — только если она одобрена директором и ещё не занята
+        $stmt = $pdo->prepare("
+            UPDATE requests
+            SET status = 'in_progress', assigned_to = ?, assigned_at = NOW(), started_at = NOW()
+            WHERE id = ? AND assigned_to IS NULL AND status = 'approved'
+        ");
         $stmt->execute([$user['id'], $requestId]);
-        
-        // Лог действия
-        $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'assigned', 'pending', 'in_progress', 'Взял заявку в работу')");
-        $stmt->execute([$requestId, $user['id']]);
-        
+
+        if ($stmt->rowCount() > 0) {
+            // Лог действия
+            $stmt = $pdo->prepare("INSERT INTO request_logs (request_id, user_id, action, old_status, new_status, comment) VALUES (?, ?, 'assigned', 'approved', 'in_progress', 'Взял заявку в работу')");
+            $stmt->execute([$requestId, $user['id']]);
+        } else {
+            $_SESSION['error_message'] = 'Заявка не найдена, ещё не одобрена директором или уже взята в работу';
+        }
+
         // Редирект на вкладку "В работе"
         header('Location: technician_dashboard.php?tab=in_progress');
         exit();
@@ -411,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['task_action'])) {
 // ════════════════════════════════════════════════════════════════
 
 // Статистика
-$stmt = $pdo->prepare("SELECT COUNT(*) as cnt FROM requests WHERE status = 'pending'");
+$stmt = $pdo->prepare("SELECT COUNT(*) as cnt FROM requests WHERE status = 'approved' AND assigned_to IS NULL");
 $stmt->execute();
 $activeCount = $stmt->fetch()['cnt'];
 
@@ -446,12 +454,13 @@ $requests = [];
 $tasks = [];
 
 if ($tab === 'active') {
-    // Активные заявки (только новые без назначения)
+    // Доступные для взятия в работу заявки — только одобренные директором и ещё не занятые.
+    // Заявки со статусом pending ждут одобрения на director_dashboard.php и сюда попадать не должны.
     $stmt = $pdo->prepare("
         SELECT r.*, r.full_name as creator_name,
         FIELD(r.priority, 'urgent', 'high', 'normal', 'low') as priority_order
-        FROM requests r 
-        WHERE r.status = 'pending' AND r.assigned_to IS NULL
+        FROM requests r
+        WHERE r.status = 'approved' AND r.assigned_to IS NULL
         ORDER BY priority_order ASC, r.created_at ASC
     ");
     $stmt->execute();
