@@ -36,7 +36,6 @@ if (isset($_GET['lang'])) {
     exit();
 }
 
-$success = '';
 $error = '';
 
 // Обработка создания заявки
@@ -93,10 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$requestType, $user['id'], $fullName, $position, $cabinet, $questionDescription, $softwareOrSystem, $priority]);
         }
         
-        $success = 'Заявка успешно отправлена!';
-        
-        // Редирект на страницу преподавателя
-        header('Location: teacher_dashboard.php?tab=active&created=1');
+        // Редирект на страницу преподавателя (новая заявка имеет статус pending —
+        // показываем вкладку "Ожидают одобрения", а не "В работе")
+        header('Location: teacher_dashboard.php?tab=pending&created=1');
         exit();
         
     } catch (PDOException $e) {
@@ -854,11 +852,6 @@ require_once __DIR__ . '/includes/sidebar.php';
       </a>
     </div>
 
-    <?php if ($success): ?>
-    <div class="card" style="margin-bottom:1rem;background:var(--color-success-highlight);border-color:#a7f3d0">
-      <div class="card-body" style="padding:.75rem 1.5rem;color:var(--color-success)"><?= htmlspecialchars($success) ?></div>
-    </div>
-    <?php endif ?>
     <?php if ($error): ?>
     <div class="card" style="margin-bottom:1rem;background:var(--color-error-highlight);border-color:#fca5a5">
       <div class="card-body" style="padding:.75rem 1.5rem;color:var(--color-error)"><?= htmlspecialchars($error) ?></div>

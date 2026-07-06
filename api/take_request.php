@@ -28,21 +28,21 @@ try {
     // Начинаем транзакцию
     $pdo->beginTransaction();
     
-    // Проверяем что заявка существует и не занята
+    // Проверяем что заявка существует, одобрена директором и не занята
     $stmt = $pdo->prepare("
-        SELECT * FROM requests 
-        WHERE id = ? AND status = 'pending'
+        SELECT * FROM requests
+        WHERE id = ? AND status = 'approved'
     ");
     $stmt->execute([$requestId]);
     $request = $stmt->fetch();
-    
+
     if (!$request) {
-        throw new Exception('Заявка не найдена или уже взята в работу');
+        throw new Exception('Заявка не найдена, ещё не одобрена директором или уже взята в работу');
     }
-    
+
     // Обновляем статус заявки
     $stmt = $pdo->prepare("
-        UPDATE requests 
+        UPDATE requests
         SET status = 'in_progress',
             assigned_to = ?,
             assigned_at = NOW(),
@@ -50,12 +50,12 @@ try {
         WHERE id = ?
     ");
     $stmt->execute([$technicianId, $requestId]);
-    
+
     // Записываем лог действия
     $stmt = $pdo->prepare("
-        INSERT INTO request_logs 
+        INSERT INTO request_logs
         (request_id, user_id, action, old_status, new_status, comment, created_at)
-        VALUES (?, ?, 'assigned', 'pending', 'in_progress', 'Взял заявку в работу', NOW())
+        VALUES (?, ?, 'assigned', 'approved', 'in_progress', 'Взял заявку в работу', NOW())
     ");
     $stmt->execute([$requestId, $technicianId]);
     

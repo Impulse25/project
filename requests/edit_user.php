@@ -474,37 +474,21 @@ $currentLang = getCurrentLanguage();
                     </h3>
                     
                     <?php
-                    // Статистика для учителя и других ролей с правом создавать заявки
-                    $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ?");
-                    $stmt->execute([$userId]);
-                    $totalRequests = $stmt->fetchColumn();
-                    
-                    if ($totalRequests > 0) {
-                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'completed'");
-                        $stmt->execute([$userId]);
-                        $completedRequests = $stmt->fetchColumn();
-                    ?>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                                <span class="text-sm text-gray-700">Всего заявок</span>
-                                <span class="font-bold text-blue-600"><?php echo $totalRequests; ?></span>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                                <span class="text-sm text-gray-700">Завершено</span>
-                                <span class="font-bold text-green-600"><?php echo $completedRequests; ?></span>
-                            </div>
-                        </div>
-                    <?php 
-                    // Статистика для системотехника
-                    } else {
+                    // Статистика подбирается по роли пользователя, а не по наличию данных,
+                    // иначе директор/админ без единой созданной заявки ошибочно
+                    // отображались бы со статистикой системотехника.
+                    $editUserIsTechnician = ($editUser['role'] === 'technician');
+
+                    if ($editUserIsTechnician) {
                         $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ?");
                         $stmt->execute([$userId]);
                         $assignedRequests = $stmt->fetchColumn();
-                        
+
+                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ? AND status = 'completed'");
+                        $stmt->execute([$userId]);
+                        $completedRequests = $stmt->fetchColumn();
+
                         if ($assignedRequests > 0) {
-                            $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE assigned_to = ? AND status = 'completed'");
-                            $stmt->execute([$userId]);
-                            $completedRequests = $stmt->fetchColumn();
                         ?>
                             <div class="space-y-3">
                                 <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
@@ -516,7 +500,32 @@ $currentLang = getCurrentLanguage();
                                     <span class="font-bold text-green-600"><?php echo $completedRequests; ?></span>
                                 </div>
                             </div>
-                        <?php 
+                        <?php
+                        } else {
+                            echo '<p class="text-sm text-gray-600">Пока нет активности</p>';
+                        }
+                    } else {
+                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ?");
+                        $stmt->execute([$userId]);
+                        $totalRequests = $stmt->fetchColumn();
+
+                        $stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ? AND status = 'completed'");
+                        $stmt->execute([$userId]);
+                        $completedRequests = $stmt->fetchColumn();
+
+                        if ($totalRequests > 0) {
+                        ?>
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                                    <span class="text-sm text-gray-700">Всего заявок</span>
+                                    <span class="font-bold text-blue-600"><?php echo $totalRequests; ?></span>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                                    <span class="text-sm text-gray-700">Завершено</span>
+                                    <span class="font-bold text-green-600"><?php echo $completedRequests; ?></span>
+                                </div>
+                            </div>
+                        <?php
                         } else {
                             echo '<p class="text-sm text-gray-600">Пока нет активности</p>';
                         }

@@ -56,66 +56,55 @@ if (isset($_GET['lang'])) {
 // Текущая вкладка
 $currentTab = $_GET['tab'] ?? 'my_requests';
 
-// Получение ВСЕХ заявок (будем фильтровать по вкладкам)
-$stmt = $pdo->query("
+// Запрос заявок фильтруется на уровне SQL по вкладке и правам —
+// раньше все заявки грузились в память и фильтровались в PHP.
+$baseSelect = "
     SELECT r.*, u.full_name as creator_name, u.position as creator_position,
            t.full_name as technician_name
-    FROM requests r 
-    JOIN users u ON r.created_by = u.id 
+    FROM requests r
+    JOIN users u ON r.created_by = u.id
     LEFT JOIN users t ON r.assigned_to = t.id
-    ORDER BY 
-        FIELD(r.priority, 'urgent', 'high', 'normal', 'low'),
-        r.created_at DESC
-");
-$allRequests = $stmt->fetchAll();
+";
+$orderBy = " ORDER BY FIELD(r.priority, 'urgent', 'high', 'normal', 'low'), r.created_at DESC";
 
-// Фильтрация заявок в зависимости от вкладки
 $displayRequests = [];
 
 switch ($currentTab) {
     case 'my_requests':
-        // Мои заявки (созданные мной)
-        $displayRequests = array_filter($allRequests, function($r) use ($user) {
-            return $r['created_by'] == $user['id'];
-        });
+        $stmt = $pdo->prepare($baseSelect . " WHERE r.created_by = ?" . $orderBy);
+        $stmt->execute([$user['id']]);
+        $displayRequests = $stmt->fetchAll();
         break;
-        
+
     case 'pending':
-        // Заявки на одобрение (только если есть право)
         if ($permissions['can_approve_request']) {
-            $displayRequests = array_filter($allRequests, function($r) {
-                return $r['status'] == 'pending';
-            });
+            $stmt = $pdo->query($baseSelect . " WHERE r.status = 'pending'" . $orderBy);
+            $displayRequests = $stmt->fetchAll();
         }
         break;
-        
+
     case 'active':
-        // Активные заявки для работы (только если есть право)
         if ($permissions['can_work_on_request']) {
-            $displayRequests = array_filter($allRequests, function($r) {
-                return in_array($r['status'], ['new', 'approved', 'in_progress']);
-            });
+            $stmt = $pdo->query($baseSelect . " WHERE r.status IN ('new', 'approved', 'in_progress')" . $orderBy);
+            $displayRequests = $stmt->fetchAll();
         }
         break;
-        
+
     case 'all':
-        // Все заявки (только если есть право)
         if ($permissions['can_view_all_requests']) {
-            $displayRequests = $allRequests;
+            $stmt = $pdo->query($baseSelect . $orderBy);
+            $displayRequests = $stmt->fetchAll();
         }
         break;
-        
+
     case 'archive':
-        // Архив завершенных заявок
-        $displayRequests = array_filter($allRequests, function($r) use ($user, $permissions) {
-            $isCompleted = $r['status'] == 'completed';
-            // Показываем либо свои, либо все (если есть право)
-            if ($permissions['can_view_all_requests']) {
-                return $isCompleted;
-            } else {
-                return $isCompleted && $r['created_by'] == $user['id'];
-            }
-        });
+        if ($permissions['can_view_all_requests']) {
+            $stmt = $pdo->query($baseSelect . " WHERE r.status = 'completed'" . $orderBy);
+        } else {
+            $stmt = $pdo->prepare($baseSelect . " WHERE r.status = 'completed' AND r.created_by = ?" . $orderBy);
+            $stmt->execute([$user['id']]);
+        }
+        $displayRequests = $stmt->fetchAll();
         break;
 }
 
@@ -150,20 +139,20 @@ function getPriorityText($priority) {
     return $texts[$priority] ?? 'Обычный';
 }
 
-// Статистика для панели
+// Статистика для панели — считается в БД, а не через выгрузку всех заявок
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE created_by = ?");
+$stmt->execute([$user['id']]);
+$myTotal = (int)$stmt->fetchColumn();
+
+$pendingTotal = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE status = 'pending'")->fetchColumn();
+$activeTotal  = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE status IN ('new', 'approved', 'in_progress')")->fetchColumn();
+$completedTotal = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE status = 'completed'")->fetchColumn();
+
 $stats = [
-    'my_total' => count(array_filter($allRequests, function($r) use ($user) {
-        return $r['created_by'] == $user['id'];
-    })),
-    'pending' => count(array_filter($allRequests, function($r) {
-        return $r['status'] == 'pending';
-    })),
-    'active' => count(array_filter($allRequests, function($r) {
-        return in_array($r['status'], ['new', 'approved', 'in_progress']);
-    })),
-    'completed' => count(array_filter($allRequests, function($r) {
-        return $r['status'] == 'completed';
-    })),
+    'my_total'  => $myTotal,
+    'pending'   => $pendingTotal,
+    'active'    => $activeTotal,
+    'completed' => $completedTotal,
 ];
 
 $currentLang = getCurrentLanguage();

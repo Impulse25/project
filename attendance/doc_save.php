@@ -37,6 +37,21 @@ function requireCuratorOrAdmin(string $role): void {
     }
 }
 
+// Если пользователь — обычный преподаватель (не admin/director), проверяем,
+// что он действительно куратор группы, к которой относится документ.
+function requireDocumentAccess(PDO $pdo, string $role, int $userId, int $groupId): void {
+    if (in_array($role, ['admin', 'director'], true)) {
+        return;
+    }
+    $stmt = $pdo->prepare("SELECT 1 FROM edu_groups WHERE id = ? AND curator_id = ?");
+    $stmt->execute([$groupId, $userId]);
+    if (!$stmt->fetch()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Вы не куратор этой группы']);
+        exit;
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // ACTION: upload — загрузка новой справки
 // ══════════════════════════════════════════════════════════════════════════
@@ -102,26 +117,32 @@ if ($action === 'upload') {
         echo json_encode(['success' => false, 'error' => 'Не удалось сохранить файл на сервер']); exit;
     }
 
-    $stmt = $pdo->prepare("
-        INSERT INTO att_documents
-            (student_id, group_id, reason_id, date_from, date_to, file_name, file_orig, file_size, file_type, status, note, teacher_id)
-        VALUES
-            (:sid, :gid, :rid, :df, :dt, :fn, :fo, :fs, :ft, 'pending', :note, :tid)
-    ");
-    $stmt->execute([
-        ':sid'  => $student_id,
-        ':gid'  => $group_id,
-        ':rid'  => $reason_id,
-        ':df'   => $date_from,
-        ':dt'   => $date_to,
-        ':fn'   => $safeName,
-        ':fo'   => $origName,
-        ':fs'   => $fileSize,
-        ':ft'   => $mimeType,
-        ':note' => $note,
-        ':tid'  => $teacher_id,
-    ]);
-    $docId = $pdo->lastInsertId();
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO att_documents
+                (student_id, group_id, reason_id, date_from, date_to, file_name, file_orig, file_size, file_type, status, note, teacher_id)
+            VALUES
+                (:sid, :gid, :rid, :df, :dt, :fn, :fo, :fs, :ft, 'pending', :note, :tid)
+        ");
+        $stmt->execute([
+            ':sid'  => $student_id,
+            ':gid'  => $group_id,
+            ':rid'  => $reason_id,
+            ':df'   => $date_from,
+            ':dt'   => $date_to,
+            ':fn'   => $safeName,
+            ':fo'   => $origName,
+            ':fs'   => $fileSize,
+            ':ft'   => $mimeType,
+            ':note' => $note,
+            ':tid'  => $teacher_id,
+        ]);
+        $docId = $pdo->lastInsertId();
+    } catch (Throwable $e) {
+        // Запись в БД не удалась — не оставляем файл-сироту на диске
+        if (file_exists($destPath)) unlink($destPath);
+        throw $e;
+    }
 
     _applyDocumentToAttendance($pdo, $student_id, $date_from, $date_to, $reason_id, $teacher_id);
 
@@ -143,16 +164,16 @@ if ($action === 'verify') {
 
     if (!$id) { echo json_encode(['success'=>false,'error'=>'Не указан ID']); exit; }
 
-    $stmt = $pdo->prepare("UPDATE att_documents SET status='verified', note=:note, teacher_id=:tid, updated_at=NOW() WHERE id=:id");
-    $stmt->execute([':note'=>$note, ':tid'=>$teacher_id, ':id'=>$id]);
-
-    // [ИСПРАВЛЕНИЕ #7] Используем prepare вместо прямого query("...WHERE id=$id")
     $docStmt = $pdo->prepare("SELECT * FROM att_documents WHERE id = :id");
     $docStmt->execute([':id' => $id]);
     $docRow = $docStmt->fetch();
-    if ($docRow) {
-        _applyDocumentToAttendance($pdo, $docRow['student_id'], $docRow['date_from'], $docRow['date_to'], $docRow['reason_id'], $teacher_id);
-    }
+    if (!$docRow) { echo json_encode(['success'=>false,'error'=>'Документ не найден']); exit; }
+    requireDocumentAccess($pdo, $userRole, $teacher_id, (int)$docRow['group_id']);
+
+    $stmt = $pdo->prepare("UPDATE att_documents SET status='verified', note=:note, teacher_id=:tid, updated_at=NOW() WHERE id=:id");
+    $stmt->execute([':note'=>$note, ':tid'=>$teacher_id, ':id'=>$id]);
+
+    _applyDocumentToAttendance($pdo, $docRow['student_id'], $docRow['date_from'], $docRow['date_to'], $docRow['reason_id'], $teacher_id);
 
     echo json_encode(['success' => true]);
     exit;
@@ -171,6 +192,12 @@ if ($action === 'reject') {
     $note = trim($data['note'] ?? '');
 
     if (!$id) { echo json_encode(['success'=>false,'error'=>'Не указан ID']); exit; }
+
+    $docStmt = $pdo->prepare("SELECT group_id FROM att_documents WHERE id = :id");
+    $docStmt->execute([':id' => $id]);
+    $docRow = $docStmt->fetch();
+    if (!$docRow) { echo json_encode(['success'=>false,'error'=>'Документ не найден']); exit; }
+    requireDocumentAccess($pdo, $userRole, $teacher_id, (int)$docRow['group_id']);
 
     $stmt = $pdo->prepare("UPDATE att_documents SET status='rejected', note=:note, teacher_id=:tid, updated_at=NOW() WHERE id=:id");
     $stmt->execute([':note'=>$note, ':tid'=>$teacher_id, ':id'=>$id]);
@@ -193,13 +220,14 @@ if ($action === 'delete') {
     if (!$id) { echo json_encode(['success'=>false,'error'=>'Не указан ID']); exit; }
 
     // [ИСПРАВЛЕНИЕ #7] prepare вместо прямого query("...WHERE id=$id")
-    $rowStmt = $pdo->prepare("SELECT file_name FROM att_documents WHERE id = :id");
+    $rowStmt = $pdo->prepare("SELECT file_name, group_id FROM att_documents WHERE id = :id");
     $rowStmt->execute([':id' => $id]);
     $row = $rowStmt->fetch();
-    if ($row) {
-        $filePath = __DIR__ . '/uploads/documents/' . $row['file_name'];
-        if (file_exists($filePath)) unlink($filePath);
-    }
+    if (!$row) { echo json_encode(['success'=>false,'error'=>'Документ не найден']); exit; }
+    requireDocumentAccess($pdo, $userRole, $teacher_id, (int)$row['group_id']);
+
+    $filePath = __DIR__ . '/uploads/documents/' . $row['file_name'];
+    if (file_exists($filePath)) unlink($filePath);
 
     $pdo->prepare("DELETE FROM att_documents WHERE id = :id")->execute([':id' => $id]);
     echo json_encode(['success' => true]);

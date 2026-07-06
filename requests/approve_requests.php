@@ -1,5 +1,4 @@
 ﻿<?php
-session_start();
 require_once __DIR__ . '/../config/db.php';
 require_once 'includes/auth.php';
 
@@ -334,7 +333,7 @@ $user_name = $_SESSION['full_name'];
                         <div class="form-group">
                             <label for="priority_<?php echo $req['id']; ?>">Приоритет:</label>
                             <select name="priority" id="priority_<?php echo $req['id']; ?>" class="priority-select">
-                                <option value="critical">🔴 Критичный (немедленно)</option>
+                                <option value="urgent">🔴 Срочный (немедленно)</option>
                                 <option value="high">🟡 Высокий (1-2 дня)</option>
                                 <option value="normal" selected>🟢 Обычный (до недели)</option>
                                 <option value="low">⚪ Низкий (когда будет время)</option>

@@ -828,6 +828,12 @@ require_once __DIR__ . '/includes/sidebar.php';
       </div>
     </div>
 
+    <?php if (isset($_GET['created'])): ?>
+      <div class="card" style="margin-bottom:1rem;background:var(--color-success-highlight);border-color:#a7f3d0">
+        <div class="card-body" style="padding:.75rem 1.5rem;color:var(--color-success)">Заявка успешно отправлена!</div>
+      </div>
+    <?php endif ?>
+
     <div class="tabs-row">
       <div class="tabs-list">
         <a href="?tab=active" class="tab-item <?= $tab==='active'?'active':'' ?>">
