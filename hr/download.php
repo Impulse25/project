@@ -11,11 +11,12 @@ require_once __DIR__ . '/app/access.php';
 
 $userId = (int)$_SESSION['user_id'];
 $userRole = hr_normalize_role($_SESSION['role'] ?? $_SESSION['user_role'] ?? $_SESSION['role_code'] ?? '');
+$hrScope = hr_user_scope($pdo, $userId, $userRole);
 
 $docId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if (!$docId) { http_response_code(404); echo 'Документ не найден'; exit; }
 
-if (!hr_user_can_view_document($pdo, $docId, $userId, $userRole)) {
+if (!hr_user_can_view_document($pdo, $docId, $userId, $userRole, $hrScope)) {
     http_response_code(403);
     echo 'Нет доступа к этому документу';
     exit;

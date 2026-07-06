@@ -279,13 +279,35 @@ if (!function_exists('hr_user_can_manage_student')) {
 }
 
 if (!function_exists('hr_user_can_view_student')) {
-    function hr_user_can_view_student(PDO $pdo, int $studentId, int $userId, string $role): bool
+    function hr_user_can_view_student(PDO $pdo, int $studentId, int $userId, string $role, array $hrScope = []): bool
     {
         $role = hr_normalize_role($role);
         if (in_array($role, ['admin', 'director'], true)) {
             return true;
         }
-        if ($role !== 'teacher' || $studentId <= 0 || $userId <= 0) {
+        if ($studentId <= 0 || $userId <= 0) {
+            return false;
+        }
+
+        // Замдиректора по практике видит студентов всех отделений (см. hr_scope_sql).
+        if (!empty($hrScope['practice_head'])) {
+            return true;
+        }
+
+        // Заведующий отделением — только студентов своего отделения.
+        if (!empty($hrScope['department_head']) && !empty($hrScope['department_id'])) {
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*)
+                FROM edu_students s
+                JOIN edu_groups g ON g.id = s.group_id
+                LEFT JOIN edu_specialties sp ON sp.id = g.specialty_id
+                WHERE s.id = ? AND COALESCE(g.department_id, sp.department_id) = ?
+            ");
+            $stmt->execute([$studentId, (int)$hrScope['department_id']]);
+            return (int)$stmt->fetchColumn() > 0;
+        }
+
+        if ($role !== 'teacher') {
             return false;
         }
 
@@ -314,7 +336,7 @@ if (!function_exists('hr_user_can_manage_record')) {
 }
 
 if (!function_exists('hr_user_can_view_record')) {
-    function hr_user_can_view_record(PDO $pdo, int $recordId, int $userId, string $role): bool
+    function hr_user_can_view_record(PDO $pdo, int $recordId, int $userId, string $role, array $hrScope = []): bool
     {
         if ($recordId <= 0) {
             return false;
@@ -322,12 +344,12 @@ if (!function_exists('hr_user_can_view_record')) {
         $stmt = $pdo->prepare('SELECT student_id FROM hr_employment WHERE id = ?');
         $stmt->execute([$recordId]);
         $studentId = (int)$stmt->fetchColumn();
-        return $studentId > 0 && hr_user_can_view_student($pdo, $studentId, $userId, $role);
+        return $studentId > 0 && hr_user_can_view_student($pdo, $studentId, $userId, $role, $hrScope);
     }
 }
 
 if (!function_exists('hr_user_can_view_document')) {
-    function hr_user_can_view_document(PDO $pdo, int $documentId, int $userId, string $role): bool
+    function hr_user_can_view_document(PDO $pdo, int $documentId, int $userId, string $role, array $hrScope = []): bool
     {
         if ($documentId <= 0) {
             return false;
@@ -335,6 +357,6 @@ if (!function_exists('hr_user_can_view_document')) {
         $stmt = $pdo->prepare('SELECT employment_id FROM hr_documents WHERE id = ?');
         $stmt->execute([$documentId]);
         $employmentId = (int)$stmt->fetchColumn();
-        return $employmentId > 0 && hr_user_can_view_record($pdo, $employmentId, $userId, $role);
+        return $employmentId > 0 && hr_user_can_view_record($pdo, $employmentId, $userId, $role, $hrScope);
     }
 }

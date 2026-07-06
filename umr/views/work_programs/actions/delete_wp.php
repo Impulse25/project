@@ -16,7 +16,7 @@ if (!$wpId) {
 }
 
 $cur = $pdo->prepare("
-    SELECT wp.id, wp.file_path, ta.teacher_id, ta.pcc_head_id
+    SELECT wp.id, wp.file_path, wp.status, ta.teacher_id, ta.pcc_head_id
     FROM umr_work_programs wp
     JOIN umr_teacher_assignments ta ON ta.id = wp.assignment_id
     WHERE wp.id = ?
@@ -34,6 +34,13 @@ $hasFullAccess  = $isAdmin || $isPccHead || $isMethodist;
 
 if (!$hasFullAccess && !$isOwnerTeacher && !$isOwnerPcc) {
     echo json_encode(['ok' => false, 'error' => 'Нет доступа к этому назначению']); exit;
+}
+
+// Утверждённую программу может удалить только admin/ПЦК/методист —
+// сам преподаватель-владелец не может её отозвать (симметрично update_wp.php,
+// где утверждённую нельзя заменить).
+if ($wp['status'] === 'approved' && !$hasFullAccess) {
+    echo json_encode(['ok' => false, 'error' => 'Утверждённую программу нельзя удалить']); exit;
 }
 
 $pdo->prepare("DELETE FROM umr_work_programs WHERE id = ?")->execute([$wpId]);
