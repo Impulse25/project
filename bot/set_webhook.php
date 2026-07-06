@@ -28,7 +28,8 @@ if ($result['ok']) {
 
 // Устанавливаем новый webhook
 echo "2. Установка нового webhook...\n";
-$setUrl = TELEGRAM_API . 'setWebhook?url=' . urlencode($webhookUrl);
+$setUrl = TELEGRAM_API . 'setWebhook?url=' . urlencode($webhookUrl)
+        . '&secret_token=' . urlencode(BOT_WEBHOOK_SECRET);
 $ch = curl_init($setUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 $response = curl_exec($ch);

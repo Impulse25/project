@@ -6,6 +6,12 @@ define('BOT_TOKEN', '8301492026:AAHZX_gZtOQvm6xHfuvMGn7uBPj5s2_d1aw');
 define('BOT_USERNAME', '@svgtk_zayavki_bot');
 define('TELEGRAM_API', 'https://api.telegram.org/bot' . BOT_TOKEN . '/');
 
+// Секрет для проверки заголовка X-Telegram-Bot-Api-Secret-Token в webhook.php.
+// Telegram присылает этот заголовок только если secret_token передан в setWebhook
+// (см. bot/set_webhook.php) — без проверки кто угодно может POST'ить на webhook.php,
+// подделывая обновления от имени любого telegram_id.
+define('BOT_WEBHOOK_SECRET', hash('sha256', BOT_TOKEN . '|webhook_secret'));
+
 // Подключение к БД (используем родительский config)
 require_once __DIR__ . '/../config/db.php';
 

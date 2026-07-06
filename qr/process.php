@@ -8,6 +8,15 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Тот же уровень доступа, что и у qr/index.php — иначе любой залогиненный
+// пользователь (teacher/technician) может слать сканирования напрямую,
+// минуя страницу журнала, доступную только admin/director.
+if (!in_array($_SESSION['role'] ?? '', ['admin', 'director'], true)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Доступ запрещён']);
+    exit;
+}
+
 require_once __DIR__ . '/../config/db.php';
 
 // ─────────────────────────────────────────────────────────────

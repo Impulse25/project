@@ -67,6 +67,8 @@ if ($action === 'upload') {
     if (!$student_id || !$group_id) {
         echo json_encode(['success' => false, 'error' => 'Не выбран студент']); exit;
     }
+    requireCuratorOrAdmin($userRole);
+    requireDocumentAccess($pdo, $userRole, $teacher_id, $group_id);
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) {
         echo json_encode(['success' => false, 'error' => 'Некорректные даты']); exit;
     }

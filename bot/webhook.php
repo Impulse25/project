@@ -13,6 +13,15 @@ require_once __DIR__ . '/commands/all.php';
 require_once __DIR__ . '/commands/stats.php';
 require_once __DIR__ . '/commands/help.php';
 
+// Проверка секрета — без неё любой внешний POST-запрос обрабатывался бы
+// как настоящее обновление от Telegram (см. bot/set_webhook.php, где секрет
+// передаётся в setWebhook).
+$incomingSecret = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '';
+if (!hash_equals(BOT_WEBHOOK_SECRET, $incomingSecret)) {
+    http_response_code(403);
+    exit;
+}
+
 // Получаем данные от Telegram
 $content = file_get_contents('php://input');
 $update = json_decode($content, true);
