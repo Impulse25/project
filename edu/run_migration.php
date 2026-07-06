@@ -4,8 +4,8 @@
  * Доступ только для admin. После применения файл лучше удалить.
  */
 require_once __DIR__ . '/../config/db.php';
-session_start();
-if (($_SESSION['role'] ?? '') !== 'admin') {
+require_once __DIR__ . '/includes/auth.php';
+if (!edu_is_admin()) {
     http_response_code(403);
     die('Доступ запрещён. Нужна роль admin.');
 }

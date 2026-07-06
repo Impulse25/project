@@ -3,21 +3,16 @@
 // Формат справки: HTML-страница, содержание построено по структуре ГОСТ 19.505-79
 // Разделы: назначение программы, условия выполнения, выполнение программы, сообщения оператору.
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+require_once 'includes/auth.php';
+
+if (!edu_can_use_edu_module()) {
+    header('Location: ' . edu_dashboard_url());
+    exit;
 }
 
-$userRole = $_SESSION['role'] ?? $_SESSION['user_role'] ?? '';
+$userRole = edu_current_role();
 $userName = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Пользователь';
-
-$dashboardUrl = 'index.php';
-if ($userRole === 'admin') {
-    $dashboardUrl = '../requests/admin_dashboard.php';
-} elseif ($userRole === 'director') {
-    $dashboardUrl = '../requests/director_dashboard.php';
-} elseif ($userRole === 'teacher') {
-    $dashboardUrl = '../requests/teacher_dashboard.php';
-}
+$dashboardUrl = edu_dashboard_url($userRole);
 
 function h($value) {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

@@ -21,6 +21,7 @@ if (!in_array($role, ['admin', 'teacher', 'director'], true)) {
     header('Location: index.php');
     exit;
 }
+edu_require_permission($pdo, 'can_edu_generate_sheets', 'groups.php');
 
 $groupId = (int)($_GET['group_id'] ?? 0);
 if (!$groupId) {

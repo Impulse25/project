@@ -8,7 +8,7 @@ require 'includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/includes/curriculum_parser.php';
 
-if (($_SESSION['role'] ?? '') !== 'admin') {
+if (!edu_is_admin()) {
     header('Location: index.php');
     exit;
 }
