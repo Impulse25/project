@@ -1,6 +1,11 @@
 <?php
 require_once 'includes/header.php';
 
+if ($role === 'student') {
+    header('Location: ' . SITE_URL . '/dashboard.php');
+    exit;
+}
+
 $groupId = (int)($_GET['id'] ?? 0);
 $group   = getGroupById($groupId);
 if (!$group) { echo '<p>Группа не найдена.</p>'; require_once 'includes/footer.php'; exit; }

@@ -2,6 +2,10 @@
 require_once 'includes/header.php';
 
 $viewId = isset($_GET['id']) ? (int)$_GET['id'] : $user['id'];
+if ($viewId !== (int)$user['id'] && !in_array($role, ['admin', 'teacher', 'director'], true)) {
+    header('Location: ' . SITE_URL . '/profile.php');
+    exit;
+}
 $pdo    = getPDO();
 $stmt   = $pdo->prepare("SELECT * FROM users WHERE id=?"); $stmt->execute([$viewId]);
 $viewUser = $stmt->fetch();

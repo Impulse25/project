@@ -1,7 +1,7 @@
 <?php
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
-requireLogin();
+requireRole('admin', 'teacher', 'director');
 
 $eventId = (int)($_GET['event_id'] ?? 0);
 if (!$eventId) { echo '<p>Не указано мероприятие.</p>'; exit; }

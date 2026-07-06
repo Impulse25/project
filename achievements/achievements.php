@@ -2,6 +2,11 @@
 require_once 'includes/header.php';
 require_once 'includes/config.php';
 
+if ($role === 'student') {
+    header('Location: ' . SITE_URL . '/dashboard.php');
+    exit;
+}
+
 $pdo       = getPDO();
 $activeTab = $_GET['tab'] ?? 'achievements';
 $flash     = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);

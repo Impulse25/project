@@ -1,6 +1,11 @@
 <?php
 require_once 'includes/header.php';
 
+if ($role === 'student') {
+    header('Location: ' . SITE_URL . '/dashboard.php');
+    exit;
+}
+
 // Если сессия пустая — открываем пустую форму для ручного заполнения
 if (empty($_SESSION['cert_parse'])) {
     $_SESSION['cert_parse'] = [

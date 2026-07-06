@@ -1,6 +1,11 @@
 <?php
 require_once 'includes/header.php';
 
+if ($role === 'student') {
+    header('Location: ' . SITE_URL . '/dashboard.php');
+    exit;
+}
+
 $flash = $_SESSION['flash'] ?? ''; unset($_SESSION['flash']);
 $pdo   = getPDO();
 

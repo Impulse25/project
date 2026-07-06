@@ -1,7 +1,7 @@
 <?php
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
-requireLogin();
+requireRole('admin', 'teacher', 'director');
 
 $pdo       = getPDO();
 $studentId = (int)($_GET['student_id'] ?? 0);

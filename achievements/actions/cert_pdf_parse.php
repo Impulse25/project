@@ -1,7 +1,7 @@
 <?php
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
-requireLogin();
+requireRole('admin', 'teacher', 'director');
 
 $pdfPtype     = $_POST['pdf_ptype']        ?? 'student';
 $eduStudentId = (int)($_POST['edu_student_id'] ?? 0);

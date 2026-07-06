@@ -1,7 +1,7 @@
 <?php
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
-requireLogin();
+requireRole('admin', 'teacher', 'director');
 
 $redirectUrl  = SITE_URL . '/cert_review.php';
 $ptype        = $_POST['ptype']            ?? 'teacher';

@@ -1,7 +1,7 @@
 <?php
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
-requireLogin();
+requireRole('admin', 'teacher', 'director');
 
 $eventId = (int)($_POST['event_id'] ?? 0);
 $title   = trim($_POST['title'] ?? '');
