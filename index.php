@@ -26,8 +26,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'])) {
     if (preg_match('~^([a-z][a-z0-9+.\-]*:)?//~i', $redirectTo)) { $redirectTo = ''; }
     if (!empty($username) && !empty($password)) {
         if (login($pdo, $username, $password)) {
-            header('Location: ' . (!empty($redirectTo) ? $redirectTo : '/'));
-            redirectToDashboard();
+            if (!empty($redirectTo)) {
+                header('Location: ' . $redirectTo);
+                exit();
+            }
+            // redirectToDashboard() из requests/includes/auth.php использует
+            // относительные пути (admin_dashboard.php и т.д.), рассчитанные на
+            // вызов из requests/*.php. Отсюда, с корня сайта, они резолвились бы
+            // неверно (portal-svgtk.ru/admin_dashboard.php — 404), поэтому
+            // дашборд выбираем сами и явно добавляем префикс requests/.
+            $dashboardByRole = [
+                'admin'      => 'admin_dashboard.php',
+                'director'   => 'director_dashboard.php',
+                'technician' => 'technician_dashboard.php',
+                'teacher'    => 'teacher_dashboard.php',
+            ];
+            $target = $dashboardByRole[$_SESSION['role'] ?? ''] ?? 'index.php';
+            header('Location: requests/' . $target);
             exit();
         } else {
             $loginError = 'Неверный логин или пароль';
